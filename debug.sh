@@ -254,8 +254,7 @@ function _mini_debug() {
         [[ "${FUNCNAME[1]}" != "main" ]] && prefix+="\033[1m:${FUNCNAME[1]}()\033[0m"
         prefix+="\033[32m:${BASH_LINENO[0]}\033[0m -- "
         printf "%s\n" "${@}" \
-            | awk -v prefix="${prefix}" '{print prefix $0}' \
-            | dd of="${DEBUG_LOG:-/dev/stderr}" conv=notrunc oflag=append status=none
+            | awk -v prefix="${prefix}" '{print prefix $0}' >> "${DEBUG_LOG:-/dev/stderr}"
     fi
 }
 

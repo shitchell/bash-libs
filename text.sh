@@ -102,6 +102,10 @@ function to-random-case() {
     }' <<< "${1-$(cat)}"
 }
 
+
+## urls ########################################################################
+################################################################################
+
 # @description Format a string to be URL encoded
 # @usage urlencode <string>
 # @usage echo <string> | urlencode -
@@ -152,6 +156,267 @@ function urldecode() {
     # encoded, we can replace %NN with \xNN and pass the lot to printf -b, which
     # will decode hex for us
     printf '%b' "${string//%/\\x}"
+}
+
+# @description Parse a URL into its component parts
+# @usage urlparse [--all] [--protocol] [--username] [--password] [--credentials] [--host] [--port] [--path] [--filename] [--query] [--fragment] <url>
+function url-parse() {
+    local do_all=true
+    local do_show_keys=true
+    local do_hide_empty_keys=false
+    local username password credentials
+    local host port
+    local path filename
+    declare -A parts
+
+    # Parse arguments
+    while [ ${#} -gt 0 ]; do
+        case "${1}" in
+            -a | --all)
+                do_all=true
+                shift
+                ;;
+            -p | --protocol)
+                parts[protocol]="" # empty string to indicate we want this part
+                do_all=false
+                shift
+                ;;
+            -u | --username)
+                parts[username]=""
+                do_all=false
+                shift
+                ;;
+            -P | --password)
+                parts[password]=""
+                do_all=false
+                shift
+                ;;
+            -c | --credentials)
+                parts[username]=""
+                do_all=false
+                shift
+                ;;
+            -h | --host)
+                parts[host]=""
+                do_all=false
+                shift
+                ;;
+            -o | --port)
+                parts[port]=""
+                do_all=false
+                shift
+                ;;
+            -a | --path)
+                parts[path]=""
+                do_all=false
+                shift
+                ;;
+            -f | --filename)
+                parts[filename]=""
+                do_all=false
+                shift
+                ;;
+            -q | --query)
+                parts[query]=""
+                do_all=false
+                shift
+                ;;
+            -r | --fragment)
+                parts[fragment]=""
+                do_all=false
+                shift
+                ;;
+            -k | --show-keys)
+                do_show_keys=true
+                shift
+                ;;
+            -K | --no-show-keys)
+                do_show_keys=false
+                shift
+                ;;
+            -e | --hide-empty-keys)
+                do_hide_empty_keys=true
+                shift
+                ;;
+            -E | --no-hide-empty-keys)
+                do_hide_empty_keys=false
+                shift
+                ;;
+            *)
+                url="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # if after parsing the args, do_all is still true, set all flags
+    if ${do_all}; then
+        for part in protocol username password host port path filename query fragment; do
+            parts[${part}]=""
+        done
+    fi
+
+    # if only 1 flag is set, don't show the keys
+    if [[ ${#parts[@]} -eq 1 ]]; then
+        do_show_keys=false
+    fi
+
+    # if no url given, check stdin
+    if [[ -z "${url}" ]]; then
+        url="$(cat -)"
+    fi
+
+    # Parse the URL
+    ## protocol
+    if [[ -n "${parts[protocol]+isset}" ]]; then
+        ## check `user@host/some/path` style urls
+        if [[ ! "${url}" =~ "://" ]] && [[ "${url}" =~ ^[^/]+"@" ]]; then
+            parts[protocol]="ssh"
+        else
+            ## check standard `protocol://user@host:port/some/path` style urls
+            parts[protocol]=$(sed -E 's#^([^:]+)://.*$#\1#' <<< "${url}")
+        fi
+    fi
+
+    ## credentials
+    if [[
+        -n "${parts[username]+isset}"
+        || -n "${parts[password]+isset}"
+        || -n "${parts[credentials]+isset}"
+    ]]; then
+        # check if the url contains credentials
+        if [[ ! "${url}" =~ "://" ]] && [[ "${url}" =~ ^[^/]+"@" ]]; then
+            ## check `user@host/some/path.git` style urls
+            credentials=$(sed -E 's#^([^@]+)@.*$#\1#' <<< "${url}")
+        elif [[ "${url}" =~ "://" && "${url}" =~ ^[^:]+"://"[^/]+"@" ]]; then
+            ## check standard `protocol://user@host:port/some/path` style urls
+            credentials=$(sed -E 's#^[^:]+://([^@]+)@.*$#\1#' <<< "${url}")
+        fi
+
+        if [[ -n "${credentials}" ]]; then
+            if [[ "${credentials}" =~ ":" ]]; then
+                username=$(cut -d: -f1 <<< "${credentials}")
+                password=$(cut -d: -f2- <<< "${credentials}")
+            else
+                username="${credentials}"
+                password=""
+            fi
+            [[ -n "${parts[username]+isset}" ]] && parts[username]="${username}"
+            [[ -n "${parts[password]+isset}" ]] && parts[password]="${password}"
+            [[ -n "${parts[credentials]+isset}" ]] && parts[credentials]="${credentials}"
+        fi
+    fi
+
+    ## host / port
+    if [[ -n "${parts[host]+isset}" || -n "${parts[port]+isset}" ]]; then
+        if [[ ! "${url}" =~ "://" ]] && [[ "${url}" =~ ^[^/]+"@" ]]; then
+            ## check `user@host/some/path.git` style urls
+            host=$(sed -E 's#^[^@]+@([^/]+)/.*$#\1#' <<< "${url}")
+            ### port
+            if [[ -n "${parts[port]+isset}" ]]; then
+                port=$(grep -oP ':\K[0-9]+' <<< "${host}")
+            fi
+        else
+            ## check standard `protocol://user@host:port/some/path` style urls
+            host=$(sed -E 's#^[^:]+://([^/]+)/.*$#\1#' <<< "${url}")
+            ### port
+            if [[ -n "${parts[port]+isset}" ]]; then
+                port=$(grep -oP ':\K[0-9]+' <<< "${host}")
+            fi
+        fi
+
+        # remove credentials and port from the host if they exist
+        if [[ -n "${parts[host]+isset}" ]]; then
+            host=$(sed -E 's#^[^@]+@##' <<< "${host}")
+            host=$(sed -E 's#:[0-9]+$##' <<< "${host}")
+            parts[host]="${host}"
+        fi
+
+        # set the host and port
+        [[ -n "${parts[port]+isset}" ]] && parts[port]="${port}"
+    fi
+
+    ## path / filename
+    if [[ -n "${parts[path]+isset}" || -n "${parts[filename]+isset}" ]]; then
+        if [[ ! "${url}" =~ "://" ]] && [[ "${url}" =~ ^[^/]+"@" ]]; then
+            ## check `user@host/some/path` style urls
+            path=$(sed -E 's#^[^/]+##' <<< "${url}")
+        else
+            ## check standard `protocol://user@host:port/some/path` style urls
+            path=$(sed -E 's#^[^:]+://[^/]+(/.*)$#\1#' <<< "${url}")
+        fi
+
+        # remove the query and fragment from the path if they exist
+        path=$(sed -E 's|[?#].*$||' <<< "${path}")
+
+        # set the path
+        [[ -n "${parts[path]+isset}" ]] && parts[path]="${path}"
+
+        ### filename
+        if [[ -n "${parts[filename]+isset}" ]]; then
+            parts[filename]=$(sed -E 's#.*/##' <<< "${path}")
+        fi
+    fi
+
+    ## query
+    if [[ -n "${parts[query]+isset}" ]]; then
+        if [[ "${url}" =~ \? ]]; then
+            parts[query]=$(sed -E 's|^.*\?||;s|#.*||' <<< "${url}")
+        else
+            parts[query]=""
+        fi
+    fi
+
+    ## fragment
+    if [[ -n "${parts[fragment]+isset}" ]]; then
+        if [[ "${url}" =~ \# ]]; then
+            parts[fragment]=$(grep -oP '#.*' <<< "${url}")
+        else
+            parts[fragment]=""
+        fi
+    fi
+
+    # if the port was requested but not found, try to set it to the default for
+    # the protocol
+    if [[ -n "${parts[port]+isset}" && -z "${parts[port]}" ]]; then
+        case "${parts[protocol]}" in
+            ssh)
+                parts[port]=22
+                ;;
+            http)
+                parts[port]=80
+                ;;
+            https)
+                parts[port]=443
+                ;;
+            ftp)
+                parts[port]=21
+                ;;
+            sftp)
+                parts[port]=22
+                ;;
+            ssh)
+                parts[port]=22
+                ;;
+            *)
+                parts[port]=""
+                ;;
+        esac
+    fi
+
+    # Print the results
+     for key in "${!parts[@]}"; do
+        value="${parts[${key}]}"
+
+        if [[ -z "${value}" ]] && ${do_hide_empty_keys}; then
+            continue
+        fi
+
+        if ${do_show_keys}; then
+            printf "%-12s: " "${key}"
+        fi
+        printf "%s\n" "${value}"
+    done
 }
 
 
@@ -357,7 +622,6 @@ function json-map-from-keys() {
     for key_value_pair in "${key_value_pairs[@]}"; do
         local key="${key_value_pair%%=*}"
         local value="${key_value_pair#*=}"
-        debug "key_value_pair: ${key} = ${value}"
 
         # Detect type if requested
         if ${detect_types}; then
