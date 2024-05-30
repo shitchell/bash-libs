@@ -6,7 +6,7 @@ source "${LIB_DIR}/debug.sh"
 source "${LIB_DIR}/text.sh"
 
 ## Default values
-[[ -z "${FEATURE_PATTERN}" ]] && FEATURE_PATTERN="AS9-[A-Z]{3,5}-[A-Z]{,5}-[0-9]{,4}"
+[[ -z "${FEATURE_PATTERN}" ]] && FEATURE_PATTERN="AS9-[A-Z]{3,5}-[A-Z]{0,5}-[0-9]{0,4}"
 [[ -z "${RELEASE_PATTERN}" ]] && RELEASE_PATTERN="{{feature}} Release"
 [[ -z "${MERGE_PATTERN}" ]] && MERGE_PATTERN="Merged in {{feature}} .*"
 [[ -z "${CHERRY_PICK_PATTERN}" ]] && CHERRY_PICK_PATTERN="Cherry-picking for {{feature}}"
@@ -17,19 +17,21 @@ source "${LIB_DIR}/text.sh"
 ## - a config file in {repo}/devops
 ## - a config file in the repo root (assuming we are in a repo)
 ## - a config file in the current directory
-__AS_CONFIG_VAR="${AS_CONFIG}"
-__AS_CONFIG_DVO=$(
-    git rev-parse --is-inside-work-tree &>/dev/null &&
-        root=$(git rev-parse --show-toplevel 2>/dev/null) &&
-        echo "${root}/devops/.as-config.sh"
-)
-__AS_CONFIG_GIT=$(
-    git rev-parse --is-inside-work-tree &>/dev/null &&
-        root=$(git rev-parse --show-toplevel 2>/dev/null) &&
-        echo "${root}/.as-config.sh"
-)
-__AS_CONFIG_DIR="./.as-config.sh"
-AS_CONFIG="${__AS_CONFIG_VAR:-${__AS_CONFIG_DVO:-${__AS_CONFIG_GIT:-${__AS_CONFIG_DIR}}}}"
+if [[ -z "${AS_CONFIG}" ]]; then
+    __AS_CONFIG_VAR="${AS_CONFIG}"
+    __AS_CONFIG_DEVOPS=$(
+        git rev-parse --is-inside-work-tree &>/dev/null &&
+            root=$(git rev-parse --show-toplevel 2>/dev/null) &&
+            echo "${root}/devops/.as-config.sh"
+    )
+    __AS_CONFIG_GIT=$(
+        git rev-parse --is-inside-work-tree &>/dev/null &&
+            root=$(git rev-parse --show-toplevel 2>/dev/null) &&
+            echo "${root}/.as-config.sh"
+    )
+    __AS_CONFIG_FILE="./.as-config.sh"
+    AS_CONFIG="${__AS_CONFIG_VAR:-${__AS_CONFIG_DEVOPS:-${__AS_CONFIG_GIT:-${__AS_CONFIG_FILE}}}}"
+fi
 if [[ -f "${AS_CONFIG}" && -r "${AS_CONFIG}" ]]; then
     source "${AS_CONFIG}"
 fi
@@ -76,10 +78,62 @@ function generate-merge-message() {
     echo "${merge_message}"
 }
 
+# @description Reduce a branch flow file to single lines
+# @usage _normalize_branch_flow <branch-flow-file>
+# @usage echo "${branch_flow}" | _normalize_branch_flow
+function _normalize_branch_flow() {
+    local branch_flow_file="${1:-/dev/stdin}"
+
+    cat "${branch_flow_file}" \
+        | sed -e 's/;/\n/g;s/\]/]\n/g' \
+        | awk '{
+            if ($0 ~ /->/) {
+                # If the line contains a "->", remove space around it and quotes
+                # around the branches
+                source_branch = $0
+                gsub(/\s+->\s+.*/, "", source_branch)
+                gsub(/^\s*/, "", source_branch)
+                gsub(/"/, "", source_branch)
+
+                target_branch = $0
+                gsub(/.*->\s+/, "", target_branch)
+                gsub(/\s+.*$/, "", target_branch)
+                gsub(/"/, "", target_branch)
+
+                eol = $0
+                gsub(/.*->\s+[^ ;]+/, "", eol)
+                gsub(/^\s*/, "", eol)
+                gsub(/\s*$/, "", eol)
+
+                $0 = source_branch " -> " target_branch " " eol
+            } else {
+                # Just remove leading/trailing whitespace
+                gsub(/^\s*/, "", $0)
+                gsub(/\s*$/, "", $0)
+            }
+            if ($0 == "") {
+                next
+            } else if ($0 ~ /\[/ && $0 !~ /]/) {
+                in_multiline = 1
+                printf "%s", $0
+            } else if ($0 ~ /]/ && in_multiline) {
+                in_multiline = 0
+                print $0
+            } else if (in_multiline) {
+                printf "%s", $0
+            } else {
+                print $0
+            }
+        }'
+}
+
 # @description Convert a branch flow file to a digraph file
 # @usage branch-flow-to-digraph <branch-flow-file>
 function branch-flow-to-digraph() {
     local branch_flow_file="${1}"
+    local flow_content
+    local line_regex="([^ ]+) -> ([^ ]+)( +)?(.*)?"
+
     if [[ "${branch_flow_file}" == "-" ]]; then
         branch_flow_file="/dev/stdin"
     fi
@@ -89,13 +143,28 @@ function branch-flow-to-digraph() {
         return 1
     fi
 
-    local branch_flow=$(cat "${branch_flow_file}")
+    flow_content=$(
+        _normalize_branch_flow "${branch_flow_file}" \
+            | sed -E 's/^([[:space:]]*)\*([[:space:]]+)/\1node\2/'
+    )
 
     echo "digraph G {"
     echo "  node [shape=box, fontname=Arial];"
-    echo "${branch_flow}" \
-        | tr -d '"' \
-        | sed -E $'s/^[ \t]*([^ ]+)[ \t]*->[ \t]*([^ ]+)(.*)/  "\\1" -> "\\2"\\3/'
+    while read -r line; do
+        # If the line contains a "->", then it's a branch flow line, so
+        # extract the source and target branches and quote them
+        if [[ "${line}" =~ ${line_regex} ]]; then
+            source_branch="${BASH_REMATCH[1]}"
+            target_branch="${BASH_REMATCH[2]}"
+            eol="${BASH_REMATCH[4]}"
+            printf '  "%s" -> "%s"' "${source_branch}" "${target_branch}"
+            [[ -n "${eol}" ]] && printf ' %s' "${eol}"
+            echo
+        else
+            # Otherwise, just print the line
+            echo "  ${line}"
+        fi
+    done <<< "${flow_content}"
     echo "}"
 }
 
@@ -104,16 +173,22 @@ function branch-flow-to-digraph() {
 function branch-flow-to-image() {
     local branch_flow_file="${1}"
     local image_file="${2:-/dev/stdout}"
+    local extension digraph
 
     if [[ -z "${branch_flow_file}" || -z "${image_file}" ]]; then
         echo "usage: branch-flow-to-image <branch-flow-file> <image-file>"
         return 1
     fi
 
-    local extension="${image_file##*.}"
+    extension="${image_file##*.}"
     [[ "${extension}" == "${image_file}" ]] && extension="svg"
-    local digraph=$(branch-flow-to-digraph "${branch_flow_file}")
+    digraph=$(
+        branch-flow-to-digraph "${branch_flow_file}" \
+            | sed -E 's/cherrypick="?true"?/cherrypick="true", style="dashed"/g' \
+            | grep -Fv ' -> "*"'
+    )
 
+    echo "${branch_flow_file} -> ${image_file}"
     echo "${digraph}" | dot -T"${extension}" -o "${image_file}"
 }
 
@@ -157,16 +232,17 @@ function get-parent-branches() {
     echo "${parent_branch}"
 }
 
-# @description Get the options for a merge given the source and target branches
-# @usage get-merge-options [-eESiVpP] [-s <source-branch>] [-t <target-branch>] [-o <option>] [-f <flow-file>]
+# @description Get branch settings from a branch flow file
+# @usage get-branch-option [-eESiVpP] [-s <source-branch>] [-t <target-branch>] [-o <option>] [-f <flow-file>]
 function get-branch-option() {
+    local line_regex="([^ ]+) -> ([^ ]+)( +)?(.*)?"
+
     # Default values
-    local source_branch_regex=""
-    local target_branch_regex=""
-    local do_regex=false
-    local do_strict=true
+    local source_branch_name=""
+    local target_branch_name=""
     local do_value_only=false
     local do_pretty=false
+    local do_show_all_matches=false # don't uniquify results
     local option_name=""
     local flow_file="./branches.gv"
 
@@ -175,11 +251,11 @@ function get-branch-option() {
     while [[ $# -gt 0 ]]; do
         case "${1}" in
             -s | --source-branch)
-                source_branch_regex="${2}"
+                source_branch_name="${2}"
                 shift 2
                 ;;
             -t | --target-branch)
-                target_branch_regex="${2}"
+                target_branch_name="${2}"
                 shift 2
                 ;;
             -o | --option)
@@ -189,14 +265,6 @@ function get-branch-option() {
             -f | --flow-file)
                 flow_file="${2}"
                 shift 2
-                ;;
-            -E | --regex)
-                do_regex=true
-                shift
-                ;;
-            -e | --no-regex)
-                do_regex=false
-                shift
                 ;;
             -S | --strict)
                 do_strict=true
@@ -220,7 +288,7 @@ function get-branch-option() {
                 do_value_only_specified=true
                 shift
                 ;;
-            -i | --include-keys)
+            -k | --show-keys)
                 do_value_only=false
                 do_value_only_specified=true
                 shift
@@ -231,6 +299,9 @@ function get-branch-option() {
                 ;;
         esac
     done
+
+    debug-vars source_branch_name target_branch_name option_name flow_file \
+        do_regex do_strict do_pretty do_value_only do_value_only_specified
 
     if ${do_value_only} && ! ${do_strict}; then
         echo "error: --value-only must be used with --strict"
@@ -243,72 +314,88 @@ function get-branch-option() {
     if [[ "${flow_file}" == "-" ]]; then
         flow_file="/dev/stdin"
     fi
-    local flow_content=$(cat "${flow_file}")
 
+    # Read the branch flow file, attempting to account for multiline options
+    local flow_content=$(_normalize_branch_flow "${flow_file}")
+
+    local line_source_branch line_target_branch line_options
     readarray -t matching_options < <(
-        echo "${flow_content}" | while read -r line; do
-            local source_branch=$(echo "${line}" | sed -E 's/^[ \t]*([^ ]+)[ \t]*->[ \t]*([^ ]+)(.*)/\1/')
-            local target_branch=$(echo "${line}" | sed -E 's/^[ \t]*([^ ]+)[ \t]*->[ \t]*([^ ]+)(.*)/\2/')
-            local options=$(echo "${line}" | sed -E 's/^[ \t]*([^ ]+)[ \t]*->[ \t]*([^ ]+)(.*)/\3/')
-
-            if [[ -n "${source_branch_regex}" ]]; then
-                if ${do_regex}; then
-                    ! [[ "${source_branch}" =~ ${source_branch_regex} ]] && continue
-                else
-                    [[ "${source_branch}" != "${source_branch_regex}" ]] && continue
-                fi
+        while read -r line; do
+            debug "processing line: ${line}"
+            if [[ "${line}" =~ ${line_regex} ]]; then
+                line_source_branch="${BASH_REMATCH[1]}"
+                line_target_branch="${BASH_REMATCH[2]}"
+                line_options="${BASH_REMATCH[4]}"
+            else
+                debug "line does not match regex, skipping"
+                continue
             fi
 
-            if [[ -n "${target_branch_regex}" ]]; then
-                if ${do_regex}; then
-                    ! [[ "${target_branch}" =~ ${target_branch_regex} ]] && continue
-                else
-                    [[ "${target_branch}" != "${target_branch_regex}" ]] && continue
-                fi
+            # Use glob matching
+            if [[ ${source_branch_name} == ${line_source_branch} ]]; then
+                debug "source branch matches"
+            else
+                debug "source branch does not match"
+                continue
+            fi
+
+            if [[ ${target_branch_name} == ${line_target_branch} ]]; then
+                debug "target branch matches"
+            else
+                debug "target branch does not match"
+                continue
             fi
 
             # Parse the options, trimming leading/trailing whitespace and brackets,
             # and replacing commas with newlines
-            local options=$(
-                echo "${options}" \
+            line_options=$(
+                echo "${line_options}" \
                     | sed -E 's/^ *\[//;s/\] *$//' \
                     | sed -Ee :1 -e 's/^(([^",]|"[^"]*")*),/\1\n/;t1' \
                     | sed 's/^ *//;s/ *$//'
             )
-            debug "all options for source/target branch: ${options}"
+            debug "all options for source/target branch: ${line_options}"
 
             if [[ -n "${option_name}" ]]; then
-                options=$(echo "${options}" | grep -E "^${option_name}=")
+                # Filter only the options matching the given option name
+                line_options=$(
+                    awk -F '=' -v option="${option_name}" '
+                        $1 == option {
+                            print $0
+                        }
+                    ' <<< "${line_options}")
+                debug "filtered options for source/target branch: ${line_options}"
             fi
-            [[ -n "${options}" ]] && echo "${options}"
-        done
+            [[ -n "${line_options}" ]] && echo "${line_options}"
+        done <<< "${flow_content}" \
+            | awk -F '=' '
+                # For each option, store only the last value
+                {
+                    options[$1] = $0
+                }
+                END {
+                    for (option in options) {
+                        print options[option]
+                    }
+                }
+            '
     )
-
-    # If strict mode is enabled, there should only be one option
-    if ${do_strict}; then
-        if [[ "${#matching_options[@]}" -gt 1 ]]; then
-            echo "error: multiple options found, use --no-strict to get all options"
-            return 1
-        fi
-    fi
+    debug "parsed matching options: ${matching_options[@]}"
 
     # If value-only mode is enabled, only the value should be returned
     if ${do_value_only}; then
         debug "do_value_only=${do_value_only}, stripping option names"
-        matching_options=($(printf '%s\n' "${matching_options[@]}" | sed -E 's/^[^=]+=//'))
+        readarray -t matching_options < <(
+            printf '%s\n' "${matching_options[@]}" | sed -E 's/^[^=]+=//'
+        )
+        debug "updated matching options: ${matching_options[@]}"
     fi
 
-    debug "matching options: ${matching_options[@]}"
-
     local opt val
-    printf '%s\n' "${matching_options[@]}" | while read -r line; do
-        debug "parsing option: ${line}"
-        if ${do_value_only}; then
-            val="${line}"
-        else
-            opt="${line%%=*}"
-            val="${line#*=}"
-        fi
+    for matching_option in "${matching_options[@]}"; do
+        debug "parsing option: ${matching_option}"
+        val="${matching_option#*=}"
+        opt="${matching_option%%=*}"
         if ${do_pretty}; then
             debug "prettifying value"
             val="${val#\"}"
@@ -329,7 +416,8 @@ function get-branch-option() {
 # @usage get-last-promotion <feature> [--branch <branch>] [--before <date>] [--after <date>]
 function get-last-promotion() {
     local branch feature before_ts after_ts
-    local git_args=() remote
+    local git_args=()
+    local remote
     local release_message pick_message merge_message promotion_pattern
     local promotion_list
     local found_promotion=false
@@ -384,8 +472,9 @@ function get-last-promotion() {
     merge_message="$(generate-merge-message "${feature}")"
     promotion_pattern="^${release_message}|${pick_message}|${merge_message}$"
 
-    debug-vars branch feature remote before_ts after_ts git_args use_trigger_ts \
-        release_message pick_message merge_message promotion_pattern
+    debug-vars branch feature remote before_ts after_ts git_args \
+        use_trigger_ts release_message pick_message merge_message \
+        promotion_pattern
 
     # - Search for all promotions (releases and picks) for the feature into the
     #   branch
@@ -560,73 +649,100 @@ function ignore-object() {
 # @example as-config server.mode
 # @example as-config "server\..*"
 function as-config() {
+    # Help text
+    local usage="[-d|--assetsuite-dir <dir>] [-n|--num-results <num>] [-i|--include <REGEXP>] [-x|--exclude <REGEXP>] [-s|--sort] [-S|--no-sort] [-k|--show-keys] [-K|--no-show-keys] [-f|--show-filenames] [-F|--no-show-filenames] [-c|--columns] [-C|--no-columns] <property name/REGEXP>"
+
     # Default values
     local key="$"
     local num_results=""
     local do_sort=false
     local do_show_filenames=true
+    local do_show_linenumbers=true
     local do_show_keys=true
     local do_show_columns=true
-    local properties_include=""
-    local properties_exclude=""
+    local properties_includes=""
+    local properties_excludes=""
     local grep_args=()
     local as_dir="${ASSETSUITE_DIR:-/abb/assetsuite}"
     local return_str=""
     local properties_files=() properties_files_unfiltered=()
 
+    # If no arguments provided, print help text
+    if [[ ${#} -le 0 ]]; then
+        echo "usage: as-config ${usage}"
+        return 0
+    fi
+
     # Process arguments
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -d|--as-dir)
+    while [ ${#} -gt 0 ]; do
+        debug "processing arg: $1"
+        case "${1}" in
+            -h | --help)
+                echo "usage: as-config ${usage}"
+                return 0
+                ;;
+            -h  |  --help)
+                echo "usage: as-config ${usage}"
+                return 0
+                ;;
+            -d | --assetsuite-dir)
                 as_dir="$2"
                 shift 2
                 ;;
-            -n|--num-results)
+            -n | --num-results)
                 # Check if the value is a number
-                if [[ ! "$2" =~ ^[0-9]+$ ]]; then
-                    echo "ERROR: The value '$2' is not a number" >&2
+                if [[ ! "${2}" =~ ^[0-9]+$ ]]; then
+                    echo "ERROR: The value '${2}' is not a number" >&2
                     return 1
                 fi
-                num_results="$2"
+                num_results="${2}"
                 shift 2
                 ;;
-            -i|--include)
-                properties_include="${1}"
+            -i | --include)
+                properties_includes="${2}"
                 shift 2
                 ;;
-            -x|--exclude)
-                properties_exclude="${1}"
+            -x | --exclude)
+                properties_excludes="${2}"
                 shift 2
                 ;;
-            -s|--sort)
+            -s | --sort)
                 do_sort=true
                 shift
                 ;;
-            -S|--no-sort)
+            -S | --no-sort)
                 do_sort=false
                 shift
                 ;;
-            -k|--show-keys)
+            -k | --show-keys)
                 do_show_keys=true
                 shift
                 ;;
-            -K|--no-show-keys)
+            -K | --no-show-keys)
                 do_show_keys=false
                 shift
                 ;;
-            -f|--show-filenames)
+            -f | --show-filenames)
                 do_show_filenames=true
                 shift
                 ;;
-            -F|--no-show-filenames)
+            -F | --no-show-filenames)
                 do_show_filenames=false
                 shift
                 ;;
-            -c|--columns)
+            -l | --show-linenumbers)
+                do_show_linenumbers=true
+                shift
+                ;;
+            -L | --no-show-linenumbers)
+                do_show_linenumbers=false
+                shift
+                ;;
+            -c | --columns)
                 do_show_columns=true
                 shift
                 ;;
-            -C|--no-columns)
+            -C | --no-columns)
                 do_show_columns=false
                 shift
                 ;;
@@ -637,25 +753,27 @@ function as-config() {
         esac
     done
 
+    # If filenames aren't being shown, ensure line numbers aren't either
+    ! ${do_show_filenames} && do_show_linenumbers=false
+
+    debug-vars \
+        key num_results do_sort do_show_keys do_show_columns do_show_filenames \
+        do_show_linenumbers as_dir properties_includes properties_excludes
+
     # Check if the AssetSuite directory exists
     if [[ ! -d "${as_dir}" ]]; then
         echo "ERROR: the AssetSuite directory '${as_dir}' does not exist" >&2
         return 1
     fi
 
-    # Set up the grep args
-    if ${do_show_filenames}; then
-        grep_args+=("-H")
-    else
-        grep_args+=("-h")
-    fi
-
     # Find all properties files, filtering based on the include/exclude patterns
+    debug "finding properties files"
     readarray -t properties_files < <(
         find "${as_dir}" -type f -name '*.properties' 2>/dev/null \
-            | grep -E "${properties_include}" \
-            | grep -vE "${properties_exclude}"
+            | ([[ -n "${properties_includes}" ]] && command grep -E "${properties_includes}" || cat) \
+            | ([[ -n "${properties_excludes}" ]] && command grep -vE "${properties_excludes}" || cat)
     )
+    debug "found ${#properties_files[@]} properties files"
 
     # Ensure we found properties files
     if [[ ${#properties_files[@]} -le 0 ]]; then
@@ -664,56 +782,192 @@ function as-config() {
     fi
 
     # Get the key value(s)
+    debug "searching for key pattern '${key}'"
     readarray -t results < <(
-        grep --color=never -RoE "${grep_args[@]}" "^${key}\s*=\s*.*" "${properties_files[@]}"
+        awk -v key="${key}" -v debug="${DEBUG}" \
+            -v do_filenames="${do_show_filenames}" \
+            -v do_linenums="${do_show_linenumbers}" '
+        function dbg(msg) {
+            if (debug == 1 || debug == "true") {
+                print "awk debug: " msg > "/dev/stderr";
+            }
+        }
+        BEGIN {
+            # Add a leading ^ and trailing $ to the key if not present
+            if (key !~ "^\\^") {
+                key = "^" key;
+            }
+            if (key !~ "\\$$") {
+                key = key "$";
+            }
+        }
+        {
+            # Save the line for printing later
+            line = $0;
+            # Skip lines starting with #
+            if ($0 ~ /^ *#/) {
+                next;
+            }
+            # Remove any comments from the line
+            gsub(/ *#.*$/, "", $0);
+            # Trim the value from the line and remove whitespace from the key
+            gsub(/ *=.*/, "", $0);
+            gsub(/^ */, "", $0);
+            if ($0 ~ key) {
+                if (do_filenames) {
+                    if (do_linenums) {
+                        print FILENAME ":" FNR ":" line;
+                    } else {
+                        print FILENAME ":" line;
+                    }
+                } else {
+                    print line;
+                }
+            }
+        }' "${properties_files[@]}"
     )
+    debug "found ${#results[@]} results"
 
     # If no results were found, return an error
     if [[ ${#results[@]} -le 0 ]]; then
         echo "error: no results found for '${key}'" >&2
         return 1
     fi
+    debug "sample results[0]: ${results[0]}"
+
+    # Strip leading/trailing whitespace from the keys and values
+    debug "stripping leading/trailing whitespace"
+    if ${do_show_filenames} && ${do_show_linenumbers}; then
+        # Skip the first 2 colons
+        readarray -t results < <(
+            printf '%s\n' "${results[@]}" \
+                | sed -E 's/^([^:]+:[0-9]+:) *([^= ]+) *= *(.*) *$/\1\2=\3/'
+        )
+    elif ${do_show_filenames} && ! ${do_show_linenumbers}; then
+        # Skip the first colon
+        readarray -t results < <(
+            printf '%s\n' "${results[@]}" \
+                | sed -E 's/^([^:]*:) *([^= ]+) *= *(.*) *$/\1\2=\3/'
+        )
+    else
+        # Don't skip any colons
+        readarray -t results < <(
+            printf '%s\n' "${results[@]}" \
+                | sed -E 's/^ *([^= ]+) *= *(.*) *$/\1=\2/'
+        )
+    fi
+    debug "sample results[0]: ${results[0]}"
 
     # Sort the array if requested
     if ${do_sort}; then
+        debug "sorting results"
         readarray -t results < <(printf '%s\n' "${results[@]}" | sort)
+        debug "sample results[0]: ${results[0]}"
+        debug "\${#results[@]}: ${#results[@]}"
     fi
 
     # Reduce the array size if requested
     if [[ -n "${num_results}" && ${num_results} -lt ${#results[@]} ]]; then
-        readarray -t results < <(printf '%s\n' "${results[@]}" | head -n "${num_results}")
+        debug "reducing results to ${num_results} results"
+        readarray -t results < <(
+            printf '%s\n' "${results[@]}" | head -n "${num_results}"
+        )
+        debug "sample results[0]: ${results[0]}"
+        debug "\${#results[@]}: ${#results[@]}"
     fi
 
-    # Remove key names if requested
+    # Remove key names if do_show_keys=false
     if ! ${do_show_keys}; then
+        debug "removing key names..."
         if ${do_show_filenames}; then
-            readarray -t results < <(
-                printf "${results[@]}" | sed -E 's/(^[^:]*:)[^=]*=/\1/'
-            )
+            if ${do_show_linenumbers}; then
+                debug "...with filenames and line numbers"
+                # Remove everything from the second : to the next =
+                readarray -t results < <(
+                    printf '%s\n' "${results[@]}" \
+                        | sed -E 's/^([^:]+:[0-9]+:)[^=]*=/\1/'
+                )
+            else
+                debug "...with filenames but no line numbers"
+                readarray -t results < <(
+                    printf '%s\n' "${results[@]}" \
+                        | sed -E 's/^([^:]*:)[^=]*=/\1/'
+                )
+            fi
         else
+            debug "...with no filenames"
             readarray -t results < <(
-                printf "${results[@]}" | sed -E 's/^[^=]*=//'
+                printf '%s\n' "${results[@]}" | sed -E 's/^[^=]*=//'
             )
         fi
+        debug "sample results[0]: ${results[0]}"
+        debug "\${#results[@]}: ${#results[@]}"
     fi
 
     # Set up the return string
     return_str=$(printf '%s\n' "${results[@]}")
 
-    # Columnize the results if requested
+    # Columnize the results if do_show_columns=true
     if ${do_show_columns}; then
-        # If filenames are being shown, replace the first colon with a FS character
+        debug "columnizing output"
+
         if ${do_show_filenames}; then
-            return_str=$(sed -E 's/:/\x1f/' <<< "${return_str}")
+            if ! ${do_show_linenumbers}; then
+                # If filenames are being shown but line numbers are not, replace
+                # the first colon with a FS character
+                debug "replacing first colon with FS character"
+                return_str=$(sed -E 's/:/\x1f/' <<< "${return_str}")
+            else
+                # If line numbers *are* being shown, then replace the second
+                # colon with a FS character
+                debug "replacing second colon with FS character"
+                return_str=$(sed -E 's/:/\x1f/2' <<< "${return_str}")
+            fi
+            debug "sample return_str[0]: ${return_str%%$'\n'*}"
         fi
-        # If key names are being shown, replace the first equals sign with a FS character
+        # If key names are being shown, replace the first equals sign with a FS
+        # character
         if ${do_show_keys}; then
+            debug "replacing first equals sign with FS character"
             return_str=$(sed -E 's/=/\x1f/' <<< "${return_str}")
+            debug "sample return_str[0]: ${return_str%%$'\n'*}"
         fi
 
         return_str=$(column -t -s $'\x1f' <<< "${return_str}")
+        debug "columnized output"
+        debug "sample return_str[0]: ${return_str%%$'\n'*}"
     fi
 
     # Print the results
     echo "${return_str}"
+}
+
+# @description Run a command as the Asset Suite user
+# @usage asrun <command>
+function asrun() {
+    local cmd_name="${1}"
+    local as_user="${AS_USER:-asuser}"
+    local cmd_args=( "${@:2}" )
+    local cmd_str="${cmd_name}"
+    [[ ${#cmd_args[@]} -gt 0 ]] && cmd_str+=$(printf ' %q' "${cmd_args[@]}")
+    debug-vars cmd_name cmd_args cmd_str
+
+    sudo -u "${AS_USER}" bash -c "${cmd_str}"
+}
+
+# @description Run a script in /abb/assetsuite/ as the Asset Suite user
+# @usage asrun-script <script> [<args>...]
+function asrun-script() (
+    cd "/abb/assetsuite" || return ${?}
+
+    local filepath="${1##*/}"
+    local args=( "${@:2}" )
+
+    asrun "./${filepath}" "${args[@]}"
+)
+
+# @description Run an /abb/assetsuite command as the Asset Suite user
+# @usage assetsuite <subcommand> [<args>...]
+function assetsuite() {
+    asrun-script "./assetsuite ${@}"
 }

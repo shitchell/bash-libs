@@ -1,57 +1,71 @@
+#!/usr/bin/env bash
+: '
+A collection of commands for printing to the console
+'
+
+include-source 'colors.sh'
 include-source 'shell.sh'
 include-source 'text.sh'
 
-# Colors!
-C_BLACK="\033[30m"
-C_RED="\033[31m"
-C_GREEN="\033[32m"
-C_YELLOW="\033[33m"
-C_BLUE="\033[34m"
-C_MAGENTA="\033[35m"
-C_CYAN="\033[36m"
-C_WHITE="\033[37m"
-C_RGB="\033[38;2;%d;%d;%dm"
-C_DEFAULT_FG="\033[39m"
-C_BLACK_BG="\033[40m"
-C_RED_BG="\033[41m"
-C_GREEN_BG="\033[42m"
-C_YELLOW_BG="\033[43m"
-C_BLUE_BG="\033[44m"
-C_MAGENTA_BG="\033[45m"
-C_CYAN_BG="\033[46m"
-C_WHITE_BG="\033[47m"
-C_RGB_BG="\033[48;2;%d;%d;%dm"
-C_DEFAULT_BG="\033[49m"
-S_RESET="\033[0m"
-S_BOLD="\033[1m"
-S_DIM="\033[2m"
-S_ITALIC="\033[3m"  # not widely supported, sometimes treated as inverse
-S_UNDERLINE="\033[4m"
-S_BLINK="\033[5m"  # slow blink
-S_BLINK_FAST="\033[6m"  # fast blink
-S_REVERSE="\033[7m"
-S_HIDDEN="\033[8m"  # not widely supported
-S_STRIKETHROUGH="\033[9m"  # not widely supported
-S_DEFAULT="\033[10m"
-
-
-# echos each argument based on the preceding argument:
-#   -k: black
-#   -g: green
-#   -r: red
-#   -b: blue
-#   -p: purple
-#   -c: cyan
-#   -B: bold
-#   -R: reverse
-#   -U: underline
-#   -K: blinking
-#   --: reset to default color
-# other options:
-#   -n: do not echo a newline
-#   -V <level>: only echo if the global VERBOSITY is >= <level>
 function echo-formatted() {
-    local code_k="${C_BLACK}"
+    :  'Echo with option based ANSI formatting
+
+        Colors are specified using options. The text following that option will
+        be styled accordingly. Use "--" to reset the color to the default. If
+        any color options are specified, a reset ANSI sequence will be appended
+        to the end of the output.
+
+        @usage
+            [-n] [-V <level] [-grbpcBRUK] [--] <text>
+
+        @option -n
+            Do not echo a newline
+        
+        @option -V <level>
+            Only echo if the global VERBOSITY is >= <level>
+        
+        @option -g
+            Green foreground
+        
+        @option -r
+            Red foreground
+
+        @option -b
+            Blue foreground
+
+        @option -p
+            Purple foreground
+
+        @option -c
+            Cyan foreground
+
+        @option -m
+            Magenta foreground
+
+        @option -B
+            Bold text
+
+        @option -D
+            Dim text
+
+        @option -R
+            Reverse text
+
+        @option -U
+            Underline text (not widely supported)
+
+        @option -K
+            Blinking text
+
+        @option --
+            Reset to default color
+        
+        @arg <text>
+            The text to echo
+        
+        @stdout
+            The formatted text
+    '
     local code_r="${C_RED}"
     local code_g="${C_GREEN}"
     local code_y="${C_YELLOW}"
@@ -61,6 +75,7 @@ function echo-formatted() {
     local code_c="${C_CYAN}"
     local code_w="${C_WHITE}"
     local code_B="${S_BOLD}"
+    local code_D="${S_DIM}"
     local code_R="${S_REVERSE}"
     local code_U="${S_UNDERLINE}"
     local code_K="${S_BLINK}"
@@ -75,13 +90,13 @@ function echo-formatted() {
 
     # if ECHO_FORMATTED is set to "auto", then colorize if we are in a tty
     local do_format
-    if [[ "${format_when}" = "auto" ]]; then
+    if [ "${format_when}" = "auto" ]; then
         if [ -t 1 ]; then
             do_format=1
         else
             do_format=0
         fi
-    elif [[ "${format_when}" = "always" ]]; then
+    elif [ "${format_when}" = "always" ]; then
         do_format=1
     else
         do_format=0
@@ -192,10 +207,23 @@ function echo-formatted() {
     fi
 }
 
-# echo a command before running it, printing an error message if it exited with
-# a non-zero status
-# echo a command before running it
 function echo-run() {
+    :  'Echo a command before running it
+
+        This function will echo the command to stdout before running it. The
+        command stdout and stderr are both printed to stdout prefixed with a
+        vertical bar. If the command exits with a non-zero status, it will print
+        an error message.
+
+        @usage
+            <command>
+
+        @arg <command>
+            The command to run
+
+        @stdout
+            The command and its output, prefixed with a vertical bar
+    '
     local cmd=("${@}")
     local exit_code
 
@@ -224,45 +252,107 @@ function echo-run() {
     return ${exit_code}
 }
 
-# echo something to stdout in dark gray
 function echo-comment() {
-    echo-formatted -kB "${@}"
+    :  'Echo a comment to stdout
+
+        This function will echo a comment to stdout.
+
+        @usage
+            <comment>
+
+        @arg <comment>
+            The comment to echo
+
+        @stdout
+            The comment
+    '
+    echo-formatted -cB "${@}"
 }
 
-# echo something to stdout in green
 function echo-command() {
-    local command_name="" command_args=()
-    # If there is one arg with a space, assume the command is a string to be
-    # evaluated
-    if [[ ${#} -eq 1 && "${1}" =~ " " ]]; then
-        command_name="${1%% *}"
-        command_args=("${1#* }")
-    else
-        command_name="${1}"
-        shift 1
-        command_args=("${@}")
-    fi
-    echo-formatted "\$" -Bg "${command_name}" -- -g "${command_args[@]}"
+    :  'Echo a command to stdout
+
+        This function will echo a command to stdout. The command is prefixed
+        with a "$".
+
+        @usage
+            <command>
+
+        @arg <command>
+            The command to echo
+
+        @stdout
+            The command
+    '
+    echo-formatted "\$" -g "${@}"
 }
 
-# echo something to stdout in yellow
 function echo-warning() {
+    :  'Echo a warning to stdout
+
+        This function will echo a warning to stdout.
+
+        @usage
+            <warning>
+
+        @arg <warning>
+            The warning to echo
+
+        @stdout
+            The warning
+    '
     echo-formatted -y "${@}"
 }
 
-# echo something to stdout in red
 function echo-error() {
+    :  'Echo an error to stdout
+
+        This function will echo an error to stdout.
+
+        @usage
+            <error>
+
+        @arg <error>
+            The error to echo
+
+        @stdout
+            The error
+    '
     echo-formatted -r "${@}"
 }
 
-# echo something to stderr in red
 function echo-stderr() {
+    :  'Echo to stderr
+
+        This function will echo to stderr in red.
+
+        @usage
+            <message>
+
+        @arg <message>
+            The message to echo
+
+        @stdout
+            The message
+    '
     echo-formatted -r "${@}" >&2
 }
 
-# echo something to stdout in green
 function echo-success() {
-    echo-formatted -g "${@}"
+    :  'Echo a success message to stdout
+
+        This function will echo a success message to stdout.
+
+        @usage
+            <message>
+
+        @arg <message>
+            The message to echo
+
+        @stdout
+            The message
+    '
+    echo-formatted -b "${@}"
 }
 
 # usage: check-command command [message]
@@ -272,9 +362,14 @@ function echo-success() {
 # the exit code of the command. Stores the output ${command} in ${output_var}
 function check-command() {
     local command="${1}"
-    local message="${2}"
-    local stdout_var="${3}"
-    local stderr_var="${4}"
+    local description
+    local prefix="* "
+    local success_message="done"
+    local error_message="error"
+    declare -A exit_code_messages=()
+    local attempts=1
+    local stdout_var="STDOUT"
+    local stderr_var="STDERR"
     local combine_output=0
 
     while [[ ${#} -gt 0 ]]; do
@@ -283,8 +378,38 @@ function check-command() {
                 command="${2}"
                 shift 2
                 ;;
-            -m | --message)
-                message="${2}"
+            -d | --description)
+                description="${2}"
+                shift 2
+                ;;
+            -p | --prefix)
+                prefix="${2}"
+                shift 2
+                ;;
+            --no-prefix)
+                prefix=""
+                shift 1
+                ;;
+            -s | --success | --success-message)
+                success_message="${2}"
+                shift 2
+                ;;
+            -e | --failure | --failure-message | --error | --error-message)
+                error_message="${2}"
+                shift 2
+                ;;
+            --exit-code-*)
+                local exit_code_name="${1#--exit-code-}"
+                exit_code_messages["${exit_code_name}"]="${2}"
+                shift 2
+                ;;
+            -a | --attempts)
+                if [[ "${2}" =~ ^[0-9]+$ ]]; then
+                    attempts="${2}"
+                else
+                    echo "error: invalid number of attempts: ${2}" >&2
+                    return 1
+                fi
                 shift 2
                 ;;
             -o | --stdout-var)
@@ -305,31 +430,57 @@ function check-command() {
         esac
     done
 
-    # If the message is empty, use the command as the message
-    if [ -z "${message}" ]; then
-        message="Running \`${command}\`"
+    debug-vars \
+        command description prefix success_message error_message attempts \
+        stdout_var stderr_var combine_output
+    
+    # If the command is empty, return an error
+    if [[ -z "${command}" ]]; then
+        echo "error: no command provided" >&2
+        return 1
     fi
 
-    local out_dir="$(mktemp -dt ccomm.${$}.XXXX)"
+    # If the description is empty, use the command as the description
+    if [ -z "${description}" ]; then
+        description="Running \`${command}\`"
+    fi
+
+    local out_dir=$(mktemp -dt ccomm.${$}.XXXX)
     local stdout_file="${out_dir}/stdout"
-    if [ -n "${stderr_var}" ]; then
+    if [[ -n "${stderr_var}" ]]; then
         local stderr_file="${out_dir}/stderr"
     else
         # if only stdout is provided, combine stdout and stderr
         local stderr_file="${stdout_file}"
     fi
 
-    echo -n "${message} ... "
+    echo -n "${prefix}${description} ... "
 
     # run the command
-    eval "(${command};)" 1>>${stdout_file} 2>>${stderr_file}
-    exit_code="$?"
+    for ((i=1; i<=${attempts}; i++)); do
+        eval "(${command};)" 1>${stdout_file} 2>${stderr_file}
+        exit_code="${?}"
+        if [[ ${exit_code} -eq 0 ]]; then
+            break
+        fi
+        if [[ ${i} -lt ${attempts} ]]; then
+            echo -n "retrying (${i}/${attempts}) ... "
+        fi
+    done
 
     # print a status message based on the exit code
-    if [ ${exit_code} -eq 0 ]; then
-        echo-success "done"
+    local exit_message=""
+    if [[ -n "${exit_code_messages[${exit_code}]}" ]]; then
+        exit_message="${exit_code_messages[${exit_code}]}"
+    elif [ ${exit_code} -eq 0 ]; then
+        exit_message="${success_message}"
     else
-        echo-error "error"
+        exit_message="${error_message}"
+    fi
+    if [ ${exit_code} -eq 0 ]; then
+        echo-success "${success_message}"
+    else
+        echo-error "${error_message}"
     fi
 
     # store the output in the specified variables
@@ -340,7 +491,7 @@ function check-command() {
     fi
 
     # clean up temporary files
-    rm -rf ${out_dir}
+    rm -rf "${out_dir}"
 
     return ${exit_code}
 }
@@ -353,6 +504,28 @@ function check-command() {
 #   echo-managed -n 2 "this will be displayed only if the verbosity is 2 or higher"
 #   echo-managed -n "this will be displayed only if the verbosity is 1 or higher"
 function echo-managed() {
+    :  '(deprecated) Print a message based on the VERBOSITY level
+
+        This function will print a message based on the environment VERBOSITY
+        level. If the verbosity level is less than the specified level, the
+        message will not be printed.
+
+        @usage
+            [-n] [<verbosity-level>] <message>
+
+        @option -n
+            Do not echo a newline
+
+        @arg <verbosity-level>
+            The verbosity level at which to print the message
+
+        @arg <message>
+            The message to print
+
+        @stdout
+            The message
+    '
+
     local echo_args=()
     local verbosity_level=1
     local message
@@ -383,4 +556,197 @@ function echo-managed() {
     if [[ ${verbosity_level} -le ${VERBOSITY} ]]; then
         echo ${echo_args} "${message}"
     fi
+}
+
+function repeat-char() {
+    :  'Repeat a character a given number of times
+
+        This function will print a character a given number of times.
+
+        @usage
+            <char> [<count>]
+
+        @arg <char>
+            The character to print
+
+        @arg <count>
+            The number of times to print the character. Default: 1
+
+        @stdout
+            The character repeated the given number of times
+    '
+    local char="${1}"
+    local count="${2:-1}"
+
+    [[ -z "${char}" ]] && return
+
+    for ((i=0; i<count; i++)); do
+        printf '%s' "${char}"
+    done
+}
+
+function print-header() {
+    :  'Print a header to the console
+
+        This function will print a header to the console. The header can be
+        styled as a bordered header, an underlined header, or a markdown header.
+
+        @usage
+            [-B/--before <n>] [-A/--after <n>] [-M/--margin <n>] [--markdown]
+            [--level <level>] [--underline] [--border] [--border-width <width>]
+            [--border-character <char>] <text>
+
+        @option -B/--before <n>
+            Print <n> empty lines before the header
+
+        @option -A/--after <n>
+            Print <n> empty lines after the header
+
+        @option -M/--margin <n>
+            Print <n> empty lines before and after the header
+
+        @option --markdown
+            Style the header as a markdown header
+
+        @option --level
+            The level of the markdown header
+
+        @option --underline
+            Style the header as an underlined header
+
+        @option --border/--bordered
+            Style the header as a bordered header
+
+        @option --border-width <width>
+            The width of the border. Default: 80
+
+        @option --border-character <char>
+            The character to use for the border. Default: "="
+
+        @arg <text>
+            The text to print in the header
+
+        @stdout
+            The header
+    '
+
+    local args=()
+    local header_text=""
+    local style="bordered" # "bordered", "markdown", "underlined"
+    local markdown_level=1
+    local border_character="="
+    local _border_width=80 # int, "fit-text" or "fit-terminal"
+    local lines_before=0
+    local lines_after=1
+
+    # set after parsing args
+    local border_width=80 # to be set after parsing args
+
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -B | --before)
+                lines_before="${2}"
+                shift 2
+                ;;
+            -A | --after)
+                lines_after="${2}"
+                shift 2
+                ;;
+            -M | --margin)
+                lines_before="${2}"
+                lines_after="${2}"
+                shift 2
+                ;;
+            --markdown)
+                style="markdown"
+                shift 1
+                ;;
+            --level)
+                markdown_level="${2}"
+                shift 2
+                ;;
+            --underline | --underlined)
+                style="underlined"
+                shift 1
+                ;;
+            --border | --bordered)
+                style="bordered"
+                shift 1
+                ;;
+            --border-width)
+                _border_width="${2}"
+                shift 2
+                ;;
+            --border-character)
+                border_character="${2}"
+                shift 2
+                ;;
+            --)
+                shift 1
+                break
+                ;;
+            *)
+                args+=("${1}")
+                shift 1
+                ;;
+        esac
+    done
+
+    # Collect any remaining arguments
+    while [[ ${#} -gt 0 ]]; do
+        args+=("${1}")
+        shift 1
+    done
+
+    # Set the header text
+    header_text="${args[*]}"
+
+    # Set the border width as an int
+    case "${_border_width}" in
+        fit-text)
+            border_width="${#header_text}"
+            ;;
+        fit-terminal)
+            border_width=$(tput cols 2>/dev/null)
+            # If the terminal width could not be determined, default to 80
+            if [[
+                -z "${border_width}"
+                || "${border_width}" =~ [^0-9]
+                || ${border_width} -le 1
+            ]]; then
+                echo "warning: could not determine terminal width" >&2
+                border_width=80
+            fi
+            ;;
+        *)
+            border_width="${_border_width}"
+            ;;
+    esac
+
+    # Print the header
+    ## Margin before the header
+    for ((i=0; i<lines_before; i++)); do echo; done
+
+    ## Print the initial border or markdown header
+    if [[ "${style}" == "bordered" ]]; then
+        # Print the first border
+        repeat-char "${border_character}" "${border_width}"
+        echo
+    elif [[ "${style}" == "markdown" ]]; then
+        repeat-char "#" "${markdown_level}"
+        echo -n " "
+    fi
+
+    ## Print the header text
+    echo "${S_BOLD}${header_text}${S_RESET}"
+
+    ## Print the final border or underline
+    if [[ "${style}" == "bordered" || "${style}" == "underlined" ]]; then
+        # Print the final border
+        repeat-char "${border_character}" "${border_width}"
+        echo
+    fi
+
+    ## Margin after the header
+    for ((i=0; i<lines_after; i++)); do echo; done
 }
