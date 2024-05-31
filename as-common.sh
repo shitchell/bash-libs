@@ -1,9 +1,11 @@
-LIB_DIR="${LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}"
+#!/usr/bin/env bash
+: '
+Asset Suite functions
+'
 
-# Load dependencies
-source "${LIB_DIR}/git.sh"
-source "${LIB_DIR}/debug.sh"
-source "${LIB_DIR}/text.sh"
+include-source 'git'
+include-source 'debug'
+include-source 'text'
 
 ## Default values
 [[ -z "${FEATURE_PATTERN}" ]] && FEATURE_PATTERN="AS9-[A-Z]{3,5}-[A-Z]{0,5}-[0-9]{0,4}"
@@ -606,6 +608,21 @@ function as-config() {
 
     # Print the results
     echo "${return_str}"
+}
+
+# @description Get the server.mode
+function as-server.mode() {
+    as-config -i env.properties -K -F server.mode
+}
+
+# @description Is the server in development mode?
+function as-is-development() {
+    [[ as-server.mode == "development" ]]
+}
+
+# @description Is the server in production mode?
+function as-is-production() {
+    [[ as-server.mode == "production" ]]
 }
 
 # @description Run a command as the Asset Suite user
