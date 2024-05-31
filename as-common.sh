@@ -617,12 +617,12 @@ function as-server.mode() {
 
 # @description Is the server in development mode?
 function as-is-development() {
-    [[ as-server.mode == "development" ]]
+    [[ "$(as-server.mode)" == "development" ]]
 }
 
 # @description Is the server in production mode?
 function as-is-production() {
-    [[ as-server.mode == "production" ]]
+    [[ "$(as-server.mode)" == "production" ]]
 }
 
 # @description Run a command as the Asset Suite user
