@@ -924,6 +924,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         __include_path="${BASH_SOURCE[0]}"
         __lib_dir="${__include_path%/*}"
         export LIB_DIR="$(realpath "${__lib_dir}")"
+        __debug "set LIB_DIR=${LIB_DIR}" >&2
         unset __include_path __lib_dir
     fi
 
