@@ -902,34 +902,59 @@ function compile-sources() {
     return ${exit_code}
 }
 
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    # When sourcing the script, allow some options to be passed in
+    __do_set_lib_dir=false
 
-## Export Functions ############################################################
-################################################################################
+    # Parse the arguments
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            --set-libdir | --auto)
+                __do_set_lib_dir=true
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
 
-export -f __debug
-export -f get-shell
-export -f functionname
-export -f in-array
-export -f __include_source_help_usage
-export -f __include_source_help_epilogue
-export -f __include_source_help_full
-export -f __include_source_parse_args
-export -f __bash_libs_get_path
-export -f __bash_libs_get_filepath
-export -f __bash_libs_get_location
-export -f source-url
-export -f source-lib
-export -f include-source
-export -f __compile_sources_help_usage
-export -f __compile_sources_help_epilogue
-export -f __compile_sources_help_full
-export -f __compile_sources_parse_args
-export -f __compile_sources_find_include_source_line
-export -f __compile_sources
-export -f compile-sources
+    # Automatically set LIB_DIR to the same directory as the script
+    if ${__do_set_lib_dir}; then
+        __include_path="${BASH_SOURCE[0]}"
+        __lib_dir="${__include_path%/*}"
+        export LIB_DIR="$(realpath "${__lib_dir}")"
+        unset __include_path __lib_dir
+    fi
+
+    ## Export Functions ########################################################
+    ############################################################################
+
+    export -f __debug
+    export -f get-shell
+    export -f functionname
+    export -f in-array
+    export -f __include_source_help_usage
+    export -f __include_source_help_epilogue
+    export -f __include_source_help_full
+    export -f __include_source_parse_args
+    export -f __bash_libs_get_path
+    export -f __bash_libs_get_filepath
+    export -f __bash_libs_get_location
+    export -f source-url
+    export -f source-lib
+    export -f include-source
+    export -f __compile_sources_help_usage
+    export -f __compile_sources_help_epilogue
+    export -f __compile_sources_help_full
+    export -f __compile_sources_parse_args
+    export -f __compile_sources_find_include_source_line
+    export -f __compile_sources
+    export -f compile-sources
 
 
-## Export Variables ############################################################
-################################################################################
+    ## Export Variables ########################################################
+    ############################################################################
 
-export INCLUDE_SOURCE="include-source"
+    export INCLUDE_SOURCE="include-source"
+fi
