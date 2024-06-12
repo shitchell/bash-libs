@@ -962,7 +962,7 @@ function resilient-push() {
         if [ ${?} -ne 0 ]; then
             # Merge pull
             output=$(
-                git pull >/dev/null 2>&1 && git push "${push_options[@]}" >/dev/null 2>&1
+                git pull >/dev/null 2>&1 && git push "${push_options[@]}" 2>&1
             )
             if [ ${?} -ne 0 ]; then
                 echo "${output}" >&2
