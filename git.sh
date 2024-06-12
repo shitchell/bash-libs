@@ -953,15 +953,16 @@ function resilient-push() {
         @return 1
             The changes could not be pushed to the remote
     '
-    git push --mirror >/dev/null 2>&1
+    local push_options=( "${@}" )
+    git push "${push_options[@]}" >/dev/null 2>&1
     if [ ${?} -ne 0 ]; then
         # Rebase pull
         git pull --rebase >/dev/null 2>&1
-        git push --mirror >/dev/null 2>&1
+        git push "${push_options[@]}" >/dev/null 2>&1
         if [ ${?} -ne 0 ]; then
             # Merge pull
             output=$(
-                git pull >/dev/null 2>&1 && git push --mirror >/dev/null 2>&1
+                git pull >/dev/null 2>&1 && git push "${push_options[@]}" >/dev/null 2>&1
             )
             if [ ${?} -ne 0 ]; then
                 echo "${output}" >&2
