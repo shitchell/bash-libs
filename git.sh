@@ -892,6 +892,7 @@ function ref-exists() {
     local ref_type="branch"
     local is_remote=true
     local remote=""
+    local repo="."
 
     # Parse the arguments
     while [[ "${#}" -gt 0 ]]; do
@@ -912,13 +913,17 @@ function ref-exists() {
             ref_type="branch"
             shift
             ;;
+        -C | --repo)
+            repo="${2}"
+            shift 2
+            ;;
         *)
             ref="${1}"
             shift
             ;;
     esac
     done
-    remote=$(git remote)
+    remote=$(git -C "${repo}" remote)
 
     # Build the ref string
     if [[ "${ref_type}" == "tag" ]]; then
@@ -931,7 +936,7 @@ function ref-exists() {
         fi
     fi
 
-    git show-ref --verify --quiet "${full_ref}"
+    git -C "${repo}" show-ref --verify --quiet "${full_ref}"
 } >/dev/null 2>&1
 
 function resilient-push() {
