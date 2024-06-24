@@ -890,7 +890,7 @@ function ref-exists() {
     local ref=""
     local full_ref=""
     local ref_type=""
-    local is_remote=true
+    local is_remote=false
     local remote=""
     local repo="."
     local refs=()
