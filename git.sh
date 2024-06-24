@@ -889,10 +889,11 @@ function ref-exists() {
     '
     local ref=""
     local full_ref=""
-    local ref_type="branch"
+    local ref_type=""
     local is_remote=true
     local remote=""
     local repo="."
+    local refs=()
 
     # Parse the arguments
     while [[ "${#}" -gt 0 ]]; do
@@ -925,18 +926,31 @@ function ref-exists() {
     done
     remote=$(git -C "${repo}" remote)
 
-    # Build the ref string
-    if [[ "${ref_type}" == "tag" ]]; then
-        full_ref="refs/tags/${ref}"
-    else
+    if [[ -z "${ref_type}" ]]; then
+        # If no ref_type is set, look for tags OR branches
+        refs+=("refs/tags/${ref}")
         if ${is_remote}; then
-            full_ref="refs/remotes/${remote}/${ref}"
+            refs+=("refs/remotes/${remote}/${ref}")
         else
-            full_ref="refs/heads/${ref}"
+            refs+=("refs/heads/${ref}")
+        fi
+    elif [[ "${ref_type}" == "tag" ]]; then
+        refs+=("refs/tags/${ref}")
+    elif [[ "${ref_type}" == "branch" ]]; then
+        if ${is_remote}; then
+            refs+=("refs/remotes/${remote}/${ref}")
+        else
+            refs+=("refs/heads/${ref}")
         fi
     fi
 
-    git -C "${repo}" show-ref --verify --quiet "${full_ref}"
+    # Search for the refs and exit on the first success
+    for ref in "${refs[@]}"; do
+        git -C "${repo}" show-ref --verify --quiet "${ref}" && return 0
+    done
+
+    # If no ref was found, exit with an error
+    return 1
 } >/dev/null 2>&1
 
 function resilient-push() {
