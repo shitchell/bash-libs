@@ -969,9 +969,10 @@ function resilient-push() {
             output=$(
                 git pull >/dev/null 2>&1 && git push "${push_options[@]}" 2>&1
             )
-            if [ ${?} -ne 0 ]; then
+            exit_code=${?}
+            if [ ${exit_code} -ne 0 ]; then
                 echo "${output}" >&2
-                return 1
+                return ${exit_code}
             fi
         fi
     fi
