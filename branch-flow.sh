@@ -3,7 +3,13 @@
 Functions for manipulating and using branch flow files.
 
 Branch flow files are graphviz-based configuration files describing how git
-branches flow together, e.g.:
+branches flow together.
+
+# Example
+
+    /**********************
+    * Example Branch Flow *
+    **********************/
 
     * -> *                [cherrypick=false, pr=true, feature-merge=true]
     feature/* -> dev
@@ -11,18 +17,83 @@ branches flow together, e.g.:
     test -> stage
     stage -> main         [feature-merge=false]
 
-Note: glob patterns are allowed, and options can be provided for each merge. In
-the example, we declare 3 default options for all merges (from "*" any branch
-to "*" any branch): cherrypick=false, pr=true, feature-merge=true. Your
-scripts can interpret these options however they like; I would suggest that this
-means: no cherry-picking features, only Pull Requests and feature branches are
-allowed for moving code between branches. Then, at the stage to main step, we
-disable merging feature branches, which means only a Pull Request can move code
-from stage to main
+Note:
+- the use of glob patterns, including for catch-all default settings
+- comments use the `/* comment */` syntax
+- options can be configured for merges
+
+# Options
+
+In the above example, we declare 3 default options for all merges (from "*" any
+branch to "*" any branch): cherrypick=false, pr=true, feature-merge=true. You
+can fetch these options using the `get-branch-option` function, e.g.: if you
+have a merge from `feature/JIRA-1234` to `dev`, you might use:
+
+    SOURCE_BRANCH="feature/JIRA-1234"
+    TARGET_BRANCH="dev"
+    can_pr=$(
+        get-branch-option \
+            --source-branch "${SOURCE_BRANCH}" \
+            --target-branch "${TARGET_BRANCH}" \
+            --option pr \
+            --flow-file "./branches.bfl"
+    )
+    if $(can_pr); then
+        # Do PR stuff
+        ...
+    fi
+
+There are no standard option names; you can use any options you like, and your
+scripts can interpret their values however they like. That said, because we are
+making use of graphviz for generating branch flow diagrams from these config
+files, some specific option names will affect the resulting diagrams per the
+graphviz syntax.
+
+# Diagrams
+
+There are 2 functions provided for generating graphviz diagrams:
+
+## branch-flow-to-digraph()
+
+Convert a branch flow file to a graphviz digraph (printed to stdout).
+
+### Usage
+
+`branch-flow-to-digraph <branch-flow-file>`
+
+### Example
+
+```sh
+branch-flow-to-digraph ./branches.bfl
+branch-flow-to-digraph ./branches.bfl > ./branches.gv
+```
+
+## branch-flow-to-image()
+
+Convert a branch flow file to an image. Image type will be automatically
+determined by extension.
+
+### Usage
+
+`branch-flow-to-image <branch-flow-file> <image-file>`
+
+### Example
+
+```sh
+branch-flow-to-image ./branches.bfl ./branches.svg
+
+# Default Branch Flow File
+
+The `get-branch-option`
+```
+
+
 '
 
 include-source 'debug'
 include-source 'shell'
+
+BRANCH_FLOW_FILE="./branches.bfl"
 
 # @description Reduce a branch flow file to single lines
 # @usage _normalize_branch_flow <branch-flow-file>
@@ -73,10 +144,12 @@ function _normalize_branch_flow() {
         }'
 }
 
+
+
 # @description Convert a branch flow file to a digraph file
-# @usage branch-flow-to-digraph <branch-flow-file>
+# @usage branch-flow-to-digraph [<branch-flow-file>]
 function branch-flow-to-digraph() {
-    local branch_flow_file="${1}"
+    local branch_flow_file="${1:-${BRANCH_FLOW_FILE}}"
     local flow_content
     local line_regex="([^ ]+) -> ([^ ]+)( +)?(.*)?"
 
@@ -84,10 +157,13 @@ function branch-flow-to-digraph() {
         branch_flow_file="/dev/stdin"
     fi
 
-    if [[ -z "${branch_flow_file}" ]]; then
-        echo "usage: branch-flow-to-digraph <branch-flow-file>"
-        return 1
-    fi
+    # Keeping this commented out until we affirm we want to require the argument
+    #if [[ -z "${branch_flow_file}" ]]; then
+    #    echo "usage: branch-flow-to-digraph <branch-flow-file>"
+    #    return 1
+    #fi
+
+    if [[ ! -f "${}"]]
 
     flow_content=$(
         _normalize_branch_flow "${branch_flow_file}" \
@@ -117,10 +193,33 @@ function branch-flow-to-digraph() {
 # @description Convert a branch flow file to an image (requires graphviz)
 # @usage branch-flow-to-image <branch-flow-file> <image-file>
 function branch-flow-to-image() {
-    local branch_flow_file="${1}"
     local image_file="${2:-/dev/stdout}"
+    local branch_flow_file="${BRANCH_FLOW_FILE}"
     local extension digraph
-    
+
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            -f | --flow-file)
+                flow_file="${2}"
+                shift 2
+                ;;
+            -*)
+                echo "error: unknown option: ${1}" >&2
+                return 1
+                ;;
+            *)
+                [[ -z "${image_file}" ]] \
+                    && image_file="${1}" \
+                    || {
+                        echo "error: too many arguments" >&2
+                        return 1
+                    }
+                shift
+                ;;
+        esac
+    done
+
     require dot
 
     if [[ -z "${branch_flow_file}" || -z "${image_file}" ]]; then
@@ -144,7 +243,7 @@ function branch-flow-to-image() {
 # @usage get-parent-branches [-f <flow-file>] <branch-name>
 function get-parent-branches() {
     local branch_name
-    local flow_file="./branches.gv"
+    local flow_file="${BRANCH_FLOW_FILE}"
 
     # Parse options
     while [[ $# -gt 0 ]]; do
@@ -192,7 +291,7 @@ function get-branch-option() {
     local do_pretty=false
     local do_show_all_matches=false # don't uniquify results
     local option_name=""
-    local flow_file="./branches.gv"
+    local flow_file="${BRANCH_FLOW_FILE}"
 
     # Parse options
     do_value_only_specified=false
