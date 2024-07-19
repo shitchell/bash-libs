@@ -231,7 +231,7 @@ function in-array() {
         @return 1
             The item is not in the array
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     local item array el
     item="${1}"
@@ -357,7 +357,7 @@ function __bash_libs_get_path() {
 
     @stdout     The value of <SHELL>_LIB_PATH or PATH
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
     local path shell_lower shell_upper lib_path lib_path_value
 
     # reliably determine the shell
@@ -407,7 +407,7 @@ function __bash_libs_get_filepath() {
     @usage      <filename>[.sh]
     @stdout     The path to the file
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     local filename="${1}"
 
@@ -450,7 +450,7 @@ function __bash_libs_get_location() {
     @usage      <filename>
     @stdout     The location of the file
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     local filename="${1}"
 
@@ -478,7 +478,7 @@ function source-url() {
 
     @usage <url>
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     local url="${1}"
     local filename="${url##*/}"
@@ -527,7 +527,7 @@ function source-lib() {
 
     @usage      <lib>[.sh]
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     local filename="${1}"
 
@@ -570,7 +570,7 @@ function include-source() {
                 [-N/--no-dry-run] [-c/--cat] [-C/--no-cat] [-v/--verbose]
                 [-V/--no-verbose] <filename>
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     local filename="${1}"
     local exit_code=0
@@ -588,9 +588,12 @@ function include-source() {
         # determine whether to treat the filename as a filepath or url
         if [[ "${filename}" =~ ^https?:// ]]; then
             # treat the filename as a url
+            #__debug "sourcing url: ${filename}"
             source-url "${filename}"
             exit_code=${?}
         else
+            # treat the filename as a filepath
+            #__debug "sourcing lib: ${filename}"
             source-lib "${filename}"
             exit_code=${?}
         fi
@@ -599,6 +602,9 @@ function include-source() {
     unset POSITIONAL_ARGS SHOW_LOCATION VERBOSE DO_CAT DO_SOURCE
     return ${exit_code}
 }
+
+# Alias for include-source
+function import() { include-source "${@}"; }
 
 
 ## compile-sources #############################################################
@@ -757,7 +763,7 @@ function __compile_sources_find_include_source_line() {
 #  1 - one or more included libs was empty
 #  2 - error parsing source file
 function __compile_sources() {
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     # get the filepath
     local filepath="${1}"
@@ -866,7 +872,7 @@ function compile-sources() {
     @usage      [-h/--help] [-i/--in-place] [-I/--no-in-place] [-b/--backups]
                 [-B/--no-backups] [-t/--tags] [-T/--no-tags] <file> [<file> ...]
     '
-    #__debug "_call(${@})"
+    #__debug "_call(${*})"
 
     local exit_code=0
     local filepath="${1}"
@@ -945,6 +951,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f source-url
     export -f source-lib
     export -f include-source
+    export -f import
     export -f __compile_sources_help_usage
     export -f __compile_sources_help_epilogue
     export -f __compile_sources_help_full

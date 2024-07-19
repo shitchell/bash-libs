@@ -1226,3 +1226,161 @@ function search-back() {
     fi
     return 1
 }
+
+function read-chars() {
+    :  'Read individual characters from stdin
+
+        Read individual characters from stdin and set a variable to the value of
+        each character. By default, the variable is set to REPLY. Intended to be
+        used in a while loop, e.g.:
+
+            while read-chars foo; do something --with $foo; done
+
+        @usage
+            [-n <int>] [<var>]
+
+        @optarg -n <int>
+            Read <int> characters at a time. Defaults to 1.
+
+        @optarg <var>
+            Set <var> to the value of each character. Defaults to REPLY.
+    '
+    # Default values
+    local varname="REPLY"
+    local count=1
+    local chars=()
+    local char
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -c | --count)
+                count="${2}"
+                shift 2
+                ;;
+            --)
+                shift
+                varname="${1}"
+                break
+                ;;
+            *)
+                varname="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # Validate the count
+    if ! [[ "${count}" =~ ^[0-9]+$ ]]; then
+        echo "error: invalid count: ${count}" >&2
+        return 1
+    fi
+
+    # Set up the variable
+    declare -n var="${varname}"
+
+    # The magic sauce, taken from StackExchange:
+    # https://unix.stackexchange.com/a/49585
+    #
+    #     while IFS= read -rn1 a; do printf %s "${a:-$'\n'}"; done
+    #
+    # But since we only want to use this in a while loop, we will NOT use a
+    # while loop here. Instead, we will simply use `read` to obtain a single
+    # character at a time. We will still use a `for` loop to repeat this process
+    # <count> times. Since this is intended to be used in a while loop, we will
+    # instead simply set the variable to the characters read and then return a 0
+    # or 1 depending on whether any characters were read to indicate whether the
+    # loop should continue.
+    for ((i = 0; i < count; i++)); do
+        if IFS= read -rn1 char; then
+            chars+=("${char:-$'\n'}")
+        elif [[ ${#chars[@]} -eq 0 ]]; then
+            # We reached the end of stdin before reading any characters. Will
+            # set the variable to nothing and return 1 to break out of the loop.
+            var=""
+            return 1
+        fi
+    done
+
+    # Set the variable to the characters read
+    IFS='' var="${chars[*]}"
+}
+
+function prompt-continue() {
+    :  'Prompt the user to continue
+
+        Prompt the user to continue and check their input against a pattern.
+        Exit or return based on user input and specified options.
+
+        @usage
+            [-y/--yes-pattern <regex>] [-e/--exit] [--exit-msg <msg>] [<prompt>]
+
+        @optarg -y/--yes-pattern <regex>
+            Use <regex> to determine if the user input is a "yes". Defaults to
+            "^[Yy](es)?$".
+
+        @optarg -e/--exit
+            If specified, will `exit` rather than `return`.
+
+        @optarg --exit-msg <msg>
+            A message to print before exiting. Defaults to "".
+
+        @optarg <prompt>
+            Display <prompt> before the input is received. Defaults to "Type
+            \"yes\" to continue:".
+    '
+
+    # Default values
+    local yes_pattern="[Yy](es)?"
+    local prompt="Type \"yes\" to continue:"
+    local do_exit=false
+    local exit_msg=""
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -y | --yes-pattern)
+                yes_pattern="${2}"
+                shift 2
+                ;;
+            -e | --exit)
+                do_exit=true
+                shift 1
+                ;;
+            --exit-msg)
+                exit_msg="${2}"
+                shift 2
+                ;;
+            --)
+                shift 1
+                prompt="${1}"
+                break
+                ;;
+            -*)
+                echo "error: unknown option: ${1}" >&2
+                return 1
+                ;;
+            *)
+                prompt="${1}"
+                shift 1
+                ;;
+        esac
+    done
+
+    # Wrap the regex in "^...$" if it is not already
+    ! [[ "${yes_pattern}" == "^"* ]] && yes_pattern="^${yes_pattern}"
+    ! [[ "${yes_pattern}" == *"$" ]] && yes_pattern="${yes_pattern}$"
+
+    # Prompt the user for input
+    read -p "${prompt} " user_input
+
+    # Check if the input matches the yes pattern
+    if ! [[ "${user_input}" =~ ${yes_pattern} ]]; then
+        [[ -n "${exit_msg}" ]] && echo "${exit_msg}"
+        if ${do_exit}; then
+            exit 1
+        else
+            return 1
+        fi
+    fi
+}
