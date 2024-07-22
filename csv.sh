@@ -1,4 +1,6 @@
-#!/usr/bin/env bash
+: '
+Functions for working with CSV files
+'
 
 function csv-echo {
     :  'Print an array as a comma-separated list with quotes as needed
@@ -26,17 +28,17 @@ function csv-echo {
     '
 
     # Parse the arguments
-    local no_newline=0
+    local do_newline=true
     local delimiter=","
     declare -a items
 
     while [ ${#} -gt 0 ]; do
         case "${1}" in
-            -n|--no-newline)
-                no_newline=1
+            -n | --no-newline)
+                do_newline=false
                 shift
                 ;;
-            -d|--delimiter)
+            -d | --delimiter)
                 delimiter="${2}"
                 shift 2
                 ;;
@@ -47,20 +49,14 @@ function csv-echo {
         esac
     done
 
-    local is_first=1
+    local is_first=true
     for item in "${items[@]}"; do
-        if [ ${is_first} -eq 1 ]; then
-            is_first=0
-        else
-            printf '%s' "${delimiter}"
-        fi
+        ${is_first} && is_first=false || printf '%s' "${delimiter}"
 
-        csv-quote "${item}"
+        csv-quote --delimeter "${delimeter}" "${item}"
     done
 
-    if [ ${no_newline} -eq 0 ]; then
-        echo
-    fi
+    ${do_newline} && echo
 }
 
 function csv-quote {
@@ -106,13 +102,13 @@ function csv-quote {
         return 1
     fi
 
-    # If the item contains whitespace, the delimieter, or a double quote, quote
-    # it
+    # If $item contains whitespace, the delimeter, or a double quote, quote it
     if [[ "${item}" =~ [[:space:]${delimiter}\"] ]]; then
         # Replace double quotes with two double quotes
         item="${item//\"/\"\"}"
         printf '"%s"' "${item}"
     else
+        # Otherwise, just print the item
         printf '%s' "${item}"
     fi
 }
