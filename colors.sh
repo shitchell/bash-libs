@@ -68,9 +68,6 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # When sourcing the script, allow some options to be passed in
     __load_colors="auto" # "auto", "true", "always", "yes", "false", "never", "no"
 
-    printf "args: "
-    printf '%q ' "${@}"
-
     # Parse the arguments
     while [[ ${#} -gt 0 ]]; do
         case "${1}" in
