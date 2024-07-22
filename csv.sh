@@ -87,7 +87,7 @@ function csv-quote {
 
     while [ ${#} -gt 0 ]; do
         case "${1}" in
-            -d|--delimiter)
+            -d | --delimiter)
                 delimiter="${2}"
                 shift 2
                 ;;
