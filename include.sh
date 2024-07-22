@@ -603,6 +603,9 @@ function include-source() {
     return ${exit_code}
 }
 
+# Alias for include-source
+function import() { include-source "${@}"; }
+
 
 ## compile-sources #############################################################
 ################################################################################
@@ -948,6 +951,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f source-url
     export -f source-lib
     export -f include-source
+    export -f import
     export -f __compile_sources_help_usage
     export -f __compile_sources_help_epilogue
     export -f __compile_sources_help_full
