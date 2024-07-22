@@ -7,36 +7,89 @@ include-source 'git'
 include-source 'debug'
 include-source 'text'
 
-## Default values
-[[ -z "${FEATURE_PATTERN}" ]] && FEATURE_PATTERN="AS9-[A-Z]{3,5}-[A-Z]{0,5}-[0-9]{0,4}"
-[[ -z "${RELEASE_PATTERN}" ]] && RELEASE_PATTERN="{{feature}} Release"
-[[ -z "${MERGE_PATTERN}" ]] && MERGE_PATTERN="Merged in {{feature}} .*"
-[[ -z "${CHERRY_PICK_PATTERN}" ]] && CHERRY_PICK_PATTERN="Cherry-picking for {{feature}}"
+# ------------------------------------------------------------------------------
+# Setup global variables
+# ------------------------------------------------------------------------------
+# These values will be set, in order of lowest to highest priority, by:
+# - a config file (see next section)
+# - the environment
 
-# Load the above values from this project's config file if present
-## look, in order, for:
-## - an AS_CONFIG environment variable
-## - a config file in {repo}/devops
-## - a config file in the repo root (assuming we are in a repo)
-## - a config file in the current directory
+# ---- Default values ----------------------------------------------------------
+
+DEFAULT_FEATURE_PATTERN="AS9-[A-Z]{3,5}-[A-Z]{0,5}-[0-9]{0,4}"
+DEFAULT_RELEASE_PATTERN="{{feature}} Release"
+DEFAULT_MERGE_PATTERN="Merged in {{feature}} .*"
+DEFAULT_CHERRY_PICK_PATTERN="Cherry-picking for {{feature}}"
+
+# ---- Save environment values -------------------------------------------------
+# Since we will later overwrite the global variable values if/when we load a
+# config file, we need to save their environment values to restore them later
+ENV_FEATURE_PATTERN="${FEATURE_PATTERN}"
+ENV_RELEASE_PATTERN="${RELEASE_PATTERN}"
+ENV_MERGE_PATTERN="${MERGE_PATTERN}"
+ENV_CHERRY_PICK_PATTERN="${CHERRY_PICK_PATTERN}"
+
+# ---- Load config file --------------------------------------------------------
+# The config file name can be set by the $AS_CONFIG_NAME environment variable,
+# defaulting to ".as-config.sh".
+# The config file will be searched, in order of lowest to highest priority, in:
+# - the path specified by $AS_CONFIG
+# - ./$AS_CONFIG_NAME
+# - {repo-root}/$AS_CONFIG_NAME (if in a git repo)
+# - {repo-root}/devops/$AS_CONFIG_NAME
+# - $HOME/$AS_CONFIG_NAME
+AS_CONFIG_NAME="${AS_CONFIG_NAME:-.as-config.sh}"
 if [[ -z "${AS_CONFIG}" ]]; then
-    __AS_CONFIG_VAR="${AS_CONFIG}"
-    __AS_CONFIG_DEVOPS=$(
-        git rev-parse --is-inside-work-tree &>/dev/null &&
-            root=$(git rev-parse --show-toplevel 2>/dev/null) &&
-            echo "${root}/devops/.as-config.sh"
-    )
-    __AS_CONFIG_GIT=$(
-        git rev-parse --is-inside-work-tree &>/dev/null &&
-            root=$(git rev-parse --show-toplevel 2>/dev/null) &&
-            echo "${root}/.as-config.sh"
-    )
-    __AS_CONFIG_FILE="./.as-config.sh"
-    AS_CONFIG="${__AS_CONFIG_VAR:-${__AS_CONFIG_DEVOPS:-${__AS_CONFIG_GIT:-${__AS_CONFIG_FILE}}}}"
+    # If AS_CONFIG isn't set, try to find a config file
+    if [[ -f "./${AS_CONFIG_NAME}" && -r "./${AS_CONFIG_NAME}" ]]; then
+        ## - ./$AS_CONFIG_NAME
+        AS_CONFIG="./${AS_CONFIG_NAME}"
+    elif git rev-parse --is-inside-work-tree &>/dev/null; then
+        # get the repo root
+        __repo_root=$(git rev-parse --show-toplevel)
+
+        if [[
+            -f "${__repo_root}/${AS_CONFIG_NAME}"
+            && -r "${__repo_root}/${AS_CONFIG_NAME}"
+        ]]; then
+            ## - {repo-root}/$AS_CONFIG_NAME
+            AS_CONFIG="${__repo_root}/${AS_CONFIG_NAME}"
+        elif [[
+            -f "${__repo_root}/devops/${AS_CONFIG_NAME}"
+            && -r "${__repo_root}/devops/${AS_CONFIG_NAME}"
+        ]]; then
+            ## - {repo-root}/devops/$AS_CONFIG_NAME
+            AS_CONFIG="${__repo_root}/devops/${AS_CONFIG_NAME}"
+        fi
+    elif [[
+        -f "${HOME}/${AS_CONFIG_NAME}"
+        && -r "${HOME}/${AS_CONFIG_NAME}"
+    ]]; then
+        ## - $HOME/$AS_CONFIG_NAME
+        AS_CONFIG="${HOME}/${AS_CONFIG_NAME}"
+    fi
 fi
 if [[ -f "${AS_CONFIG}" && -r "${AS_CONFIG}" ]]; then
+    ## We will overwrite the environment variables here, which is why we saved
+    ## them off earlier -- so we can put them back, prioritizing environment
+    ## values over config values, but still loading the config values where
+    ## the environment variables are not set.
     source "${AS_CONFIG}"
 fi
+
+# ---- Set the global variables ------------------------------------------------
+# Set from (1) the environment, (2) config, or (3) the default value:
+#   VAR="${ENV_VALUE:-${CONFIG_VALUE}:-${DEFAULT_VALUE}}"
+
+FEATURE_PATTERN="${ENV_FEATURE_PATTERN:-${FEATURE_PATTERN:-${DEFAULT_FEATURE_PATTERN}}}"
+RELEASE_PATTERN="${ENV_RELEASE_PATTERN:-${RELEASE_PATTERN:-${DEFAULT_RELEASE_PATTERN}}}"
+MERGE_PATTERN="${ENV_MERGE_PATTERN:-${MERGE_PATTERN:-${DEFAULT_MERGE_PATTERN}}}"
+CHERRY_PICK_PATTERN="${ENV_CHERRY_PICK_PATTERN:-${CHERRY_PICK_PATTERN:-${DEFAULT_CHERRY_PICK_PATTERN}}}"
+
+
+# ------------------------------------------------------------------------------
+# Functions
+# ------------------------------------------------------------------------------
 
 # @description Generate a feature release commit message
 # @usage generate-release-message <feature-name>
