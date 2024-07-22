@@ -145,7 +145,6 @@ function _normalize_branch_flow() {
 }
 
 
-
 # @description Convert a branch flow file to a digraph file
 # @usage branch-flow-to-digraph [<branch-flow-file>]
 function branch-flow-to-digraph() {
@@ -163,7 +162,10 @@ function branch-flow-to-digraph() {
     #    return 1
     #fi
 
-    if [[ ! -f "${}"]]
+    if [[ ! -f "${branch_flow_file}" ]]; then
+        echo "error: branch flow file not found: ${branch_flow_file}" >&2
+        return 1
+    fi
 
     flow_content=$(
         _normalize_branch_flow "${branch_flow_file}" \
