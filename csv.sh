@@ -134,7 +134,7 @@ function csv-split {
 
         @arg row
             The CSV row to split
-        
+
         @optarg name
             The name of the array to store the fields in (default: FIELDS)
 
