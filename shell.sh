@@ -1,3 +1,9 @@
+: '
+Shell related functions
+'
+
+include-source debug
+
 # returns the name of the current shell
 function get-shell() {
     basename "$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')" \
@@ -1091,31 +1097,31 @@ function search-back() {
         @usage
             [-d/--directory] [-f/--file] [-h/--help] [-m/--max-depth <num>]
             [-v/--verbose] <name>
-        
+
         @option -h/--help
             Print this help message and exit.
-        
+
         @option -d/--directory
             Search for a directory.
-        
+
         @option -f/--file
             Search for a file.
-        
+
         @option -m/--max-depth <num>
             The maximum number of directories to search before giving up.
-        
+
         @option -v/--verbose
             Print the directories being searched.
-        
+
         @arg name
             The name of the file or directory to search for.
-        
+
         @stdout
             The full path to the file or directory if found.
-        
+
         @return 0
             If the file or directory is found.
-        
+
         @return 1
             If the file or directory is not found.
     '
@@ -1383,4 +1389,354 @@ function prompt-continue() {
             return 1
         fi
     fi
+}
+
+function describe-var() {
+    :  'Return the type and value of a bash variable
+
+        Return the type and value of a bash variable as returned by `declare`.
+        Optionally, can return a more human-readable type and inferred types
+        (e.g.: integers and floats).
+
+        Output is returned in the format "<type>\t<value>".
+
+        @usage
+            [-h/--human] [-i/--infer] [-f/--follow-links]
+            [-t/--type] [-v/--value] [-a/--all] <var>
+
+        @optarg -h/--human
+            Return a human-readable type. Defaults to false.
+
+        @optarg -i/--infer
+            Infer the type of the variable. Implies --human. Defaults to false.
+
+        @optarg -f/--follow-links
+            Follow linked variables. Defaults to false.
+
+        @option -t/--type
+            Only show the variable type.
+
+        @option -v/--value
+            Only show the variable value.
+
+        @option -a/--all
+            Show the variable type and value. This is the default.
+
+        @arg <var>
+            The variable to check.
+
+        @stdout
+            The type of the variable.
+
+        @return 0
+            If the type is determined successfully.
+
+        @return 1
+            If the type is not determined successfully.
+    '
+    # Default values
+    local do_human=false
+    local do_infer=false
+    local do_follow_links=false
+    local show_type=true
+    local show_value=true
+    local var_name var_value
+    local var_type var_type_char var_type_chars=() var_types=()
+    local regex
+    local decl
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -h | --human)
+                do_human=true
+                shift
+                ;;
+            -i | --infer)
+                do_infer=true
+                shift
+                ;;
+            -f | --follow-links)
+                do_follow_links=true
+                shift
+                ;;
+            -t | --type)
+                do_type=true
+                do_value=false
+                shift
+                ;;
+            -v | --value)
+                do_value=true
+                do_type=false
+                shift
+                ;;
+            -a | --all)
+                do_type=true
+                do_value=true
+                shift
+                ;;
+            --)
+                shift
+                var_name="${1}"
+                break
+                ;;
+            *)
+                var_name="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # Get the variable declaration
+    decl=$(declare -p "${var_name}" 2>&1)
+    regex="^declare -([^ ]+) ${var_name}=(.*)"
+    if [[ "${decl}" =~ ${regex} ]]; then
+        var_type="${BASH_REMATCH[1]}"
+        var_value="${BASH_REMATCH[2]}"
+    elif [[ "${decl}" =~ "declare: ${var_name}: not found"$ ]]; then
+        var_type="N"
+    else
+        var_type="U"
+    fi
+
+    # Clean up the value
+    ## Remove leading/trailing double quotes
+    var_value="${var_value#\"}"
+    var_value="${var_value%\"}"
+    ## Convert the trailing ' )' in maps to just ')'
+    [[ "${var_type}" == *"A"* ]] && var_value="${var_value% )})"
+
+    debug "var_name:  ${var_name}"
+    debug "var_type:  ${var_type}"
+    debug "var_value: ${var_value}"
+
+    # Check if the variable is linked
+    if [[ "${var_type}" == *"n"* ]] && ${do_follow_links}; then
+        # Trim the quotes off the value to get the linked variable name
+        if [[ -z "${var_value}" ]]; then
+            echo "error: could not determine linked variable" >&2
+            return 1
+        fi
+        describe-var --follow-links "${var_value}"
+        return ${?}
+    fi
+
+    # Sort the type chars for consistent output
+    # var_type=$(
+    #     while read -r -n1 char; do
+    #         echo "${char}"
+    #     done <<< "${var_type}" | sort | tr -d '\n'
+    # )
+    ## read the chars into a sorted array
+    readarray -t var_type_chars < <(grep -o . <<< "${var_type}" | sort)
+    ## join the array back into a sorted string
+    var_type="${var_type_chars[*]}"
+    var_type="${var_type// /}"
+
+    debug "var_type_chars: ${var_type_chars[*]}"
+    debug "var_type:       $(printf %q "${var_type}")"
+
+    # Determine the human readable / inferred types
+    if ${do_human} || ${do_infer}; then
+        for var_type_char in "${var_type_chars[@]}"; do
+            debug "processing var_type_char: ${var_type_char}"
+            case "${var_type_char}" in
+                *a*) var_types+=("array") ;;
+                *A*) var_types+=("map") ;;
+                *i*) var_types+=("int") ;;
+                *n*) var_types+=("link") ;;
+                *t*) var_types+=("trace") ;;
+                *x*) var_types+=("export") ;;
+                *r*) var_types+=("readonly"); ;;
+                *l*) var_types+=("string" "lower") ;;
+                *u*) var_types+=("string" "upper") ;;
+                *-*) var_types+=("string")
+                    if ${do_infer}; then
+                        # Try to determine a type based on patterns
+                        if [[ "${var_value}" == "true" || "${var_value}" == "false" ]]; then
+                            var_types+=("boolean")
+                        elif [[ "${var_value}" =~ ^[0-9]+$ ]]; then
+                            var_types+=("integer")
+                        elif [[ "${var_value}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                            var_types+=("float")
+                        fi
+                    fi
+                    ;;
+                *N*) var_types+=("unset") ;;
+                *)   var_types+=("unknown") ;;
+            esac
+        done
+    fi
+
+    # Print the type and value
+    if ${do_type}; then
+        if ${do_human}; then
+            (IFS=, ; echo -n "${var_types[*]}")
+        else
+            echo -n "${var_type}"
+        fi
+    fi
+    if ${do_type} && ${do_value}; then
+        printf '\t'
+    fi
+    if ${do_value}; then
+        printf '%s' "${var_value}"
+    fi
+    echo
+}
+
+function negate() {
+    :  'Negate "true"<->"false" and "1"<->"-1"
+
+        Negate the value of a boolean or integer. If the value is "true" or "1",
+        then the result will be "false" or "-1". If the value is "false" or "-1",
+        then the result will be "true" or "1".
+
+        @usage
+            <value>
+
+        @arg <value>
+            The value to negate.
+
+        @stdout
+            The negated value.
+
+        @return 0
+            If the value is negated successfully.
+
+        @return 1
+            If the value is not negated successfully.
+    '
+    local value="${1}"
+
+    case "${value}" in
+        true)   echo "false" ;;
+        false)  echo "true" ;;
+        1)      echo "-1" ;;
+        -1)     echo "1" ;;
+        *)
+            echo "error: invalid value: ${value}" >&2
+            return 1
+            ;;
+    esac
+}
+
+function truthy() {
+    :  'Return 0 for truthy values, else 1
+
+        Uses pythonic logic for determining truthiness. The following values are
+        considered falsey:
+            - false
+            - 0
+            - null
+            - empty string
+            - empty array
+            - empty object
+
+        @usage
+            [--var] <value>
+
+        @option --var
+            If specified, the value is the name of a variable.
+
+        @arg <value>
+            The value to check for truthiness.
+
+        @return 0
+            If the value is truthy.
+
+        @return 1
+            If the value is falsey.
+    '
+    local is_var=false
+    local value
+    local value_decl
+    local value_type
+    local linked_var
+    local regex
+    local actual_value # used to help if value is a var
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            --var)
+                is_var=true
+                shift
+                ;;
+            --)
+                shift
+                value="${1}"
+                break
+                ;;
+            *)
+                value="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # Check if the value is a variable
+    if ${is_var}; then
+        declare -n actual_value="${value}"
+        # get the type
+        value_decl=$(declare -p "${value}" 2>&1)
+        regex="^declare -([^ ]+) ${value}="
+        if [[ "${value_decl}" =~ ${regex} ]]; then
+            value_type="${BASH_REMATCH[1]}"
+        elif [[ "${value_decl}" =~ "declare: ${value}: not found"$ ]]; then
+            value_type="-N"
+        else
+            value_type="-U"
+        fi
+    else
+        actual_value="${value}"
+        value_type="--"
+    fi
+    value_type="${value_type#-}"
+
+    debug-vars value value_type actual_value is_var
+
+    case "${value_type}" in
+        *a* | *A*) # Array or associative array
+            debug "evaluating as array"
+            [[ ${#actual_value[@]} -eq 0 ]] && return 1 || return 0 ;;
+        *i*) # Integer
+            debug "evaluating as integer"
+            [[ "${actual_value}" -ne 0 ]] && return 0 || return 1 ;;
+        *l* | *u* | *-*) # lowercase, uppercase, string
+            debug "evaluating as string"
+            case "${actual_value}" in
+                false) return 1 ;;
+                0)     return 1 ;;
+                "")    return 1 ;;
+                *)     return 0 ;;
+            esac
+            ;;
+        *N*) # Not set
+            debug "evaluating as not set"
+            return 1 ;;
+        *U*) # unset
+            debug "evaluating as unset"
+            return 1 ;;
+        *n*) # linked
+            debug "evaluating as link"
+            # get the name of the linked variable
+            regex="^declare -n ${value}=\"?([^\"]+)\"?"
+            if [[ "${value_decl}" =~ ${regex} ]]; then
+                linked_var="${BASH_REMATCH[1]}"
+                linked_var="${linked_var#\"}"
+                linked_var="${linked_var%\"}"
+            else
+                echo "error: could not determine linked variable" >&2
+                return 1
+            fi
+            # check if the linked variable is truthy
+            truthy --var "${linked_var}"
+            return $?
+            ;;
+        *)
+            echo "warning: unknown type: ${value_type}" >&2
+            return 1
+            ;;
+    esac
 }
