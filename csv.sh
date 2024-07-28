@@ -186,20 +186,42 @@ function csv-split {
     declare -n __array="${__name}"
     __array=()
 
-    local IFS=$'\n'
-    local __regex="((\"([^\"]|\"\")*\")|[^${__delimiter}]*)${__delimiter}"
+    # Loop over the row character by character
+    local __in_quotes=false
+    local __field=""
+    local __char
+    local __next_char
+    for (( i=0; i<${#__row}; i++ )); do
+        __char="${__row:$i:1}"
+        __next_char="${__row:$((i+1)):1}"
 
-    while [[ "${__row}" =~ ${__regex} ]]; do
-        local __field="${BASH_REMATCH[1]}"
-        __row="${__row:${#BASH_REMATCH[0]}}"
-
-        # Remove surrounding quotes and unescape double quotes if field is quoted
-        if [[ "${__field}" =~ ^\".*\"$ ]]; then
-            __field="${__field:1:-1}"
-            __field="${__field//\"\"/\"}"
+        # If the character is a quote, toggle the in_quotes flag
+        if [[ "${__char}" == '"' ]]; then
+            ${__in_quotes} && __in_quotes=false || __in_quotes=true
+            continue
         fi
 
-        __array+=("${__field}")
+        # If the character is a delimiter and we're not in quotes, add the field
+        if [[ "${__char}" == "${__delimiter}" && ! ${__in_quotes} ]]; then
+            # Double check if we need to unquote the field
+            if [[ "${__field}" == '"'*'"' ]]; then
+                __field=$(csv-unquote "${__field}")
+            fi
+            __array+=("${__field}")
+            __field=""
+            continue
+        fi
+
+        # If the character is a quote and the next character is a quote, add a
+        # single quote to the field and skip the next character
+        if [[ "${__char}" == "\"" && "${__next_char}" == "\"" ]]; then
+            __field="${__field}\""
+            ((i++))
+            continue
+        fi
+
+        # Add the character to the field
+        __field="${__field}${__char}"
     done
 
     # Handle the last field
