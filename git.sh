@@ -986,7 +986,9 @@ function resilient-push() {
             )
             exit_code=${?}
             if [ ${exit_code} -ne 0 ]; then
-                echo "${output}" >&2
+                [[ -n "${output}" ]] \
+                    && echo "${output}" >&2 \
+                    || echo "error: resilient-push failed to push" >&2
                 return ${exit_code}
             fi
         fi
