@@ -3,6 +3,8 @@ Network related functions
 '
 # TODO: - add -i/--interactive option to exec-socket for interactive sessions
 #       - add -t/--timeout option for connection timeout
+#       - have exec-http do its own colorization rather than offloading to
+#         exec-socket, that way we can colorize headers but not response data
 
 include-source 'debug'
 include-source 'colors'
