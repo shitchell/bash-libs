@@ -189,7 +189,12 @@ function exec-http() {
     for header in "${headers[@]}"; do
         local key="${header%%:*}"
         local value="${header#*: }"
-        request_headers["${key,,}"]="${value}"
+        # If the value is empty, remove the header
+        if [[ -z "${value}" ]]; then
+            unset request_headers["${key,,}"]
+        else
+            request_headers["${key,,}"]="${value}"
+        fi
     done
     ### Basic Authentication
     if [[ -n "${auth}" ]]; then
