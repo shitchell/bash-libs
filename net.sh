@@ -277,25 +277,19 @@ function exec-socket() {
     exec {net_fd}<>"/dev/${protocol}/${host}/${port}"
 
     # Set up cleanup traps on function return
-    ## Fix stdout/stderr if `--silent` was used
-    function unsilent() {
+    ## restore stdout/stderr if silenced
+    function unsilence() {
         [[ -t 3 ]] && exec 1>&3
         [[ -t 4 ]] && exec 2>&4
     }
-    ## Close the file descriptor
+    ## close the network file descriptor
     function close-netfd() {
-        # Validate that net_fd is a valid file descriptor
-        if [[ -t "${net_fd}" ]]; then
-            echo "closing net_fd (${net_fd})"
-            exec {net_fd}<&-
-        else
-            echo "error: invalid file descriptor: ${net_fd}" >&2
-        fi
+        exec {net_fd}<&- || echo "error: failed to close net_fd" >&2
     }
-    ## Combined trap
+    ## cleanup function
     function cleanup() {
-        unsilent
         close-netfd
+        unsilence
     }
     trap cleanup RETURN
 
