@@ -1,6 +1,8 @@
 : '
 Network related functions
 '
+# TODO: - add -i/--interactive option to exec-socket for interactive sessions
+#       - add -t/--timeout option for connection timeout
 
 include-source 'debug'
 
