@@ -204,7 +204,8 @@ function exec-socket() {
     :  'Send arbitrary data over a tcp/udp socket
 
         @usage
-            [-p/--protocol <protocol>] [-s/--silent] <host> <port> <data>
+            [-p/--protocol <protocol>] [-s/--silent] [-v/--verbose]
+            <host> <port> <data>
 
         @optarg -p/--protocol <protocol>
             The protocol to use. Available options are tcp and udp. Defaults to
@@ -212,6 +213,9 @@ function exec-socket() {
 
         @optarg -s/--silent
             Suppress all output.
+
+        @optarg -v/--verbose
+            Enable verbose output.
 
         @arg <host>
             The host to send the data to.
@@ -236,7 +240,7 @@ function exec-socket() {
     local host=""
     local port=""
     local data=""
-    local do_silent=false
+    local verbosity=1  # 0 = silent, 1 = normal, 2 = verbose
 
     # Parse arguments
     while [[ ${#} -gt 0 ]]; do
@@ -246,7 +250,11 @@ function exec-socket() {
                 shift 2
                 ;;
             -s | --silent)
-                do_silent=true
+                verbosity=0
+                shift 1
+                ;;
+            -v | --verbose)
+                verbosity=2
                 shift 1
                 ;;
             *)
@@ -267,11 +275,11 @@ function exec-socket() {
     esac
 
     # If suppressing all output, then redirect stdout and stderr
-    if ${do_silent}; then
+    if ((verbosity == 0)); then
         exec 3>&1 4>&2 1>/dev/null 2>&1
     fi
 
-    debug-vars protocol host port data do_silent
+    debug-vars protocol host port data verbosity
 
     # Prepare the file descriptor
     exec {net_fd}<>"/dev/${protocol}/${host}/${port}"
@@ -293,11 +301,20 @@ function exec-socket() {
     }
     trap cleanup RETURN
 
+    # If verbosity is enabled, print the data with a "> " prefix
+    if ((verbosity > 1)); then
+        while IFS= read -r line; do
+            printf '> %s\n' "${line}"
+        done <<< "${data}"
+    fi
+
     # Send the data
     printf '%s' "${data}" >&${net_fd}
 
     # Read and print the response
+    local prefix
+    ((verbosity > 1)) && prefix="< "
     while IFS= read -r -u ${net_fd} line; do
-        printf '%s\n' "${line}"
+        printf "${prefix}%s\n" "${line}"
     done
 }
