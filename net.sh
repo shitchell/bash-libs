@@ -5,6 +5,7 @@ Network related functions
 #       - add -t/--timeout option for connection timeout
 
 include-source 'debug'
+include-source 'colors'
 
 function generate-basic-auth() {
     :  'Generate a base64 encoded basic authentication token.
@@ -29,7 +30,7 @@ function exec-http() {
             [-u/--user <user:password>] [-A/--user-agent <agent>]
             [-p/--protocol <protocol>] [-V/--http-version <version>]
             [-S/--suppress-headers] [-s/--silent] [-v/--verbose]
-            <host>[:<port>][/<path>]
+            [-c/--color <when>] <host>[:<port>][/<path>]
 
         @optarg -X/--request <method>
             The request method to use. Defaults to GET.
@@ -63,6 +64,10 @@ function exec-http() {
         @option -v/--verbose
             Enable verbose output.
 
+        @optarg -c/--color <when>
+            Colorize the output. Available options are always, auto, and never.
+            Defaults to auto.
+
         @arg <host>[:<port>][/<path>]
             The host to send the request to. Port defaults to 80 if not
             specified. Path defaults to / if not specified.
@@ -92,6 +97,7 @@ function exec-http() {
     local response_headers_finished=false
     local -A request_headers=()
     local sock_args=()
+    local color_when="auto"
 
     # Parse arguments
     while [[ ${#} -gt 0 ]]; do
@@ -128,6 +134,10 @@ function exec-http() {
                 verbosity=2
                 shift 1
                 ;;
+            -c | --color)
+                color_when="${2}"
+                shift 2
+                ;;
             *)
                 host="${1}"
                 shift 1
@@ -151,6 +161,15 @@ function exec-http() {
     else
         echo "error: invalid host: ${host}" >&2
         return 1
+    fi
+
+    # Setup colors for exec-socket. We have to do this here because exec-socket
+    # will be running in a subshell and won't be able to accurately determine
+    # how to handle "auto"
+    if ((verbosity > 0)); then
+        if [[ "${color_when}" == "auto" ]]; then
+            [[ -t 1 ]] && color_when="always" || color_when="never"
+        fi
     fi
 
     debug-vars protocol method host port path headers auth data \
@@ -193,7 +212,11 @@ function exec-http() {
     # Use the exec-socket function to send the request and handle the response
     ((verbosity > 1)) && sock_args+=(-v)
     ((verbosity < 1)) && sock_args+=(-s)
-    sock_args+=(-p "${protocol}" "${host}" "${port}" "${request}")
+    sock_args+=(
+        -p "${protocol}"
+        --color "${color_when}"
+        "${host}" "${port}" "${request}"
+    )
     while IFS= read -r line; do
         if ${do_suppress_headers} && ! ${response_headers_finished}; then
             if [[ -z "${line}" || "${line}" == $'\r' || "${line}" == $'\r\n' ]]; then
@@ -210,7 +233,7 @@ function exec-socket() {
 
         @usage
             [-p/--protocol <protocol>] [-s/--silent] [-v/--verbose]
-            [-t/--timeout <seconds>] <host> <port> <data>
+            [-c/--color <when>] [-t/--timeout <seconds>] <host> <port> <data>
 
         @optarg -p/--protocol <protocol>
             The protocol to use. Available options are tcp and udp. Defaults to
@@ -221,6 +244,10 @@ function exec-socket() {
 
         @optarg -v/--verbose
             Enable verbose output.
+
+        @optarg -c/--color <when>
+            Colorize the output. Available options are always, auto, and never.
+            Defaults to auto.
 
         @optarg -t/--timeout <seconds>
             The timeout for the connection. NOTE: This requires a dependency on
@@ -254,6 +281,8 @@ function exec-socket() {
     local output=""
     local fd=""
     local verbosity=1  # 0 = silent, 1 = normal, 2 = verbose
+    local do_color=false
+    local color_when="auto"
 
     # Parse arguments
     while [[ ${#} -gt 0 ]]; do
@@ -274,6 +303,10 @@ function exec-socket() {
             -v | --verbose)
                 verbosity=2
                 shift 1
+                ;;
+            -c | --color)
+                color_when="${2}"
+                shift 2
                 ;;
             *)
                 if [[ -z "${host}" ]]; then
@@ -308,9 +341,35 @@ function exec-socket() {
     # If suppressing all output, then redirect stdout and stderr
     if ((verbosity == 0)); then
         exec 3>&1 4>&2 1>/dev/null 2>&1
+    else
+        # Setup colors
+        case "${color_when}" in
+            always | yes)
+                do_color=true
+                ;;
+            auto)
+                [[ -t 1 ]] && do_color=true
+                ;;
+            never | no)
+                do_color=false
+                ;;
+            *)
+                echo "error: invalid color option: ${color_when}" >&2
+                return 1
+                ;;
+        esac
+        if ${do_color}; then
+            setup-colors
+            C_REQUEST="${C_CYAN}"
+            C_REQUEST_PREFIX="${S_BOLD}${C_REQUEST}"
+            C_RESPONSE="${C_GREEN}"
+            C_RESPONSE_PREFIX="${S_BOLD}${C_RESPONSE}"
+        else
+            unset-colors
+        fi
     fi
 
-    debug-vars protocol host port data verbosity timeout
+    debug-vars protocol host port data verbosity timeout do_color
 
     # Prepare the file descriptor
     fd="/dev/${protocol}/${host}/${port}"
@@ -346,7 +405,7 @@ function exec-socket() {
     if ((verbosity > 1)); then
         debug "verbosely printing request data"
         while IFS= read -r line; do
-            echo "> ${line}"
+            echo "${C_REQUEST_PREFIX}>${S_RESET} ${C_REQUEST}${line}${S_RESET}"
         done <<< "${data}"
     fi
 
@@ -357,9 +416,9 @@ function exec-socket() {
 
     # Read and print the response
     local prefix
-    ((verbosity > 1)) && prefix="< "
+    ((verbosity > 1)) && prefix="${C_RESPONSE_PREFIX}<${S_RESET} "
     while IFS= read -r -u ${net_fd} line; do
         # debug-vars line
-        printf "${prefix}%s\n" "${line}"
+        printf "${prefix}${C_RESPONSE}%s${S_RESET}\n" "${line}"
     done
 }
