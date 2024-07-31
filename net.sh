@@ -19,7 +19,7 @@ function generate-basic-auth() {
     printf '%s' "${user}:${password}" | base64
 }
 
-function exec-http-request() {
+function exec-http() {
     :  'Makes use of /dev to send a request without any external tools
 
         @usage
