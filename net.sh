@@ -9,6 +9,7 @@ Network related functions
 include-source 'debug'
 include-source 'colors'
 
+
 function generate-basic-auth() {
     :  'Generate a base64 encoded basic authentication token.
 
@@ -235,21 +236,26 @@ function exec-socket() {
 
         @usage
             [-p/--protocol <protocol>] [-s/--silent] [-v/--verbose]
-            [-c/--color <when>] [-t/--timeout <seconds>] <host> <port> <data>
+            [-c/--color <when>] [--no-color-response-body]
+            [-t/--timeout <seconds>] <host> <port> <data>
 
         @optarg -p/--protocol <protocol>
             The protocol to use. Available options are tcp and udp. Defaults to
             tcp.
 
-        @optarg -s/--silent
+        @option -s/--silent
             Suppress all output.
 
-        @optarg -v/--verbose
+        @option -v/--verbose
             Enable verbose output.
 
         @optarg -c/--color <when>
             Colorize the output. Available options are always, auto, and never.
             Defaults to auto.
+
+        @option no-color-response-body
+            Do not colorize the response body. This function will attempt to
+            still colorize response headers if possible.
 
         @optarg -t/--timeout <seconds>
             The timeout for the connection. NOTE: This requires a dependency on
@@ -284,6 +290,8 @@ function exec-socket() {
     local fd=""
     local verbosity=1  # 0 = silent, 1 = normal, 2 = verbose
     local do_color=false
+    local do_color_response_body=false
+    local response_headers_finished=false
     local color_when="auto"
 
     # Parse arguments
@@ -309,6 +317,14 @@ function exec-socket() {
             -c | --color)
                 color_when="${2}"
                 shift 2
+                ;;
+            --no-color-response-body)
+                do_color_response_body=false
+                shift 1
+                ;;
+            --color-response-body)
+                do_color_response_body=true
+                shift 1
                 ;;
             *)
                 if [[ -z "${host}" ]]; then
@@ -417,10 +433,31 @@ function exec-socket() {
     printf '%s' "${data}" >&${net_fd}
 
     # Read and print the response
-    local prefix
-    ((verbosity > 1)) && prefix="${C_RESPONSE_PREFIX}<${S_RESET} "
+    local base_prefix prefix suffix
+    ((verbosity > 1)) && base_prefix="< "
+    if ${do_color}; then
+        prefix="${C_RESPONSE_PREFIX}${base_prefix}${S_RESET}${C_RESPONSE}"
+        suffix="${S_RESET}"
+    else
+        prefix="${base_prefix}"
+    fi
     while IFS= read -r -u ${net_fd} line; do
         # debug-vars line
-        printf "${prefix}${C_RESPONSE}%s${S_RESET}\n" "${line}"
+        # Attempt to determine when the response headers have finished (assuming
+        # the protocol has headers)
+        if ! ${response_headers_finished}; then
+            if [[ -z "${line}" || "${line}" == $'\r' || "${line}" == $'\r\n' ]]; then
+                response_headers_finished=true
+                if ! ${do_color_response_body}; then
+                    if ${do_color}; then
+                        prefix="${C_RESPONSE_PREFIX}${base_prefix}${S_RESET}"
+                        suffix=""
+                    else
+                        prefix="${base_prefix}"
+                    fi
+                fi
+            fi
+        fi
+        printf "${prefix}%s${suffix}\n" "${line}"
     done
 }
