@@ -1384,3 +1384,99 @@ function prompt-continue() {
         fi
     fi
 }
+
+function check-sudo() {
+    :  'Validate whether a user has sudo access
+
+        Check if the current user has sudo access, optionally only for specific
+        commands (e.g.: if the user has sudo access for `apt-get` but not for
+        `reboot`). If no arguments are supplied, this function will simply check
+        if the user can run `sudo -v`. If arguments are supplied, they will be
+        individually checked with the `sudo [-n] -l <command>`, and if the user
+        does not have access to any of the commands, the function will exit with
+        an error.
+
+        @usage
+            [-v/--verbose] [-q/--quiet] [<command> [<command> ...]]
+
+        @option -v/--verbose
+            Print the commands being checked and the results.
+
+        @option -q/--quiet
+            Suppress all output.
+
+        @arg <command>
+            Check if the user has sudo access for the specified command.
+
+        @return 0
+            If the user has sudo access.
+
+        @return 1
+            If the user does not have sudo access
+        '
+    # Default values
+    local do_quiet=true
+    local commands=()
+    local sudo_cmds=()
+    local cmd_string=""
+    local exit_code=0
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -v | --verbose)
+                do_quiet=false
+                shift
+                ;;
+            -q | --quiet)
+                do_quiet=true
+                shift
+                ;;
+            --)
+                shift
+                commands+=("${@}")
+                break
+                ;;
+            *)
+                commands+=("${1}")
+                shift
+                ;;
+        esac
+    done
+
+    # If we should be quiet, then redirect all output to /dev/null and set up
+    # a trap to restore the output when the function exits
+    if ${do_quiet}; then
+        function __restore_output() {
+            exec 1>&9 2>&8 9>&- 8>&-
+        }
+        exec 9>&1 8>&2 1>/dev/null 2>&1
+        trap __restore_output RETURN
+    fi
+
+    # If no commands were supplied, check if the user can run `sudo -v`
+    if [[ ${#commands[@]} -eq 0 ]]; then
+        cmd_str="sudo -n -v"
+        if eval "${cmd_str}" &> /dev/null; then
+            echo "sudo access granted"
+            exit_code=0
+        else
+            echo "sudo access denied"
+            exit_code=1
+        fi
+    else
+        # Check if the user has sudo access for the specified commands
+        for cmd in "${commands[@]}"; do
+            cmd_str="sudo -n -l ${cmd}"
+            echo -n "sudo ${cmd} ... "
+            if eval "${cmd_str}" &> /dev/null; then
+                echo "granted"
+            else
+                echo "denied"
+                exit_code=1
+            fi
+        done
+    fi
+
+    return ${exit_code}
+}
