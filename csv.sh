@@ -1,6 +1,7 @@
 : '
 Functions for working with CSV files
 '
+    declare -a items
 
 function csv-quote {
     :  'Quote a string for use in a CSV file
@@ -149,21 +150,23 @@ function csv-split {
     '
 
     # Parse the arguments
-    local delimiter=","
-    local row
-    local name="FIELDS"
+    ## Because we'll be linking to an array variable, we'll use __ prefixes here
+    ## to help avoid naming coliisions
+    local __delimiter=","
+    local __row
+    local __name="FIELDS"
 
     while [ ${#} -gt 0 ]; do
         case "${1}" in
             -d | --delimiter)
-                delimiter="${2}"
+                __delimiter="${2}"
                 shift 2
                 ;;
             *)
-                if [[ -z "${row}" ]]; then
-                    row="${1}"
+                if [[ -z "${__row}" ]]; then
+                    __row="${1}"
                 else
-                    name="${1}"
+                    __name="${1}"
                 fi
                 shift 1
                 ;;
@@ -174,39 +177,57 @@ function csv-split {
     # variable, and we cannot set an array variable in the current shell from a
     # subshell (i.e.: from a pipe)
     # If row is still empty, return an error
-    if [[ -z "${row}" ]]; then
+    if [[ -z "${__row}" ]]; then
         return 1
     fi
 
     # Set up the array
-    declare -n array="${name}"
-    array=()
+    declare -n __array="${__name}"
+    __array=()
 
-    local IFS=$'\n'
-    local regex="((\"([^\"]|\"\")*\")|[^${delimiter}]*)${delimiter}"
+    # Loop over the row character by character
+    local __in_quotes=false
+    local __field=""
+    local __char
+    local __next_char
+    local __row_chars=${#__row}
+    for (( i=0; i<${__row_chars}; i++ )); do
+        __char="${__row:$i:1}"
+        __next_char="${__row:$((i+1)):1}"
 
-    while [[ $row =~ $regex ]]; do
-        local field="${BASH_REMATCH[1]}"
-        row="${row:${#BASH_REMATCH[0]}}"
-
-        # Remove surrounding quotes and unescape double quotes if field is quoted
-        if [[ "$field" =~ ^\".*\"$ ]]; then
-            field="${field:1:-1}"
-            field="${field//\"\"/\"}"
+        # If the character is a quote, determine if we need to toggle the flag
+        # or add a quoted quote to the field
+        if [[ "${__char}" == '"' ]]; then
+            # If the quote comes before a quoted quote, then add a single quote
+            # to the field and skip past the next char (the quote)
+            if [[ "${__next_char}" == '"' ]]; then
+                __field+='"'
+                ((i++))
+                continue
+            else
+                ${__in_quotes} && __in_quotes=false || __in_quotes=true
+            fi
+            continue
         fi
 
-        array+=("$field")
+        # If the character is a delimiter and we're not in quotes, add the field
+        if [[ "${__char}" == "${__delimiter}" ]] && ! ${in_quotes}; then
+            # Double check if we need to unquote the field
+            if [[ "${__field}" == '"'*'"' ]]; then
+                __field=$(csv-unquote "${__field}")
+            fi
+            __array+=("${__field}")
+            __field=""
+            continue
+        fi
+        
+        __field+="${__char}"
+
+        # Handle the last field
+        if ((i == __row_chars - 1 )); then
+            __array+=("${__field}")
+        fi
     done
-
-    # Handle the last field
-    if [ -n "$row" ]; then
-        # Remove surrounding quotes and unescape double quotes if field is quoted
-        if [[ "$row" =~ ^\".*\"$ ]]; then
-            row="${row:1:-1}"
-            row="${row//\"\"/\"}"
-        fi
-        array+=("$row")
-    fi
 
     return 0
 }
@@ -341,6 +362,86 @@ function csv-column-index() {
             echo "${i}"
             return 0
         fi
+    done
+}
+
+function csv-row-dict() {
+    :  'Given a header row and a data row, create a dictionary
+
+        @usage
+            [-d/--delimiter <delimiter>] <header> <row> [name]
+
+        @option -d/--delimiter <delimiter>
+            Use <delimiter> as the field separator (default: ,)
+
+        @arg header
+            The header row
+
+        @arg row
+            The data row
+
+        @optarg name
+            The name of the dictionary to store the fields in (default: CSV_ROW)
+
+        @stdout
+            The dictionary
+
+        @return 0
+            Successful completion
+
+        @return 1
+            If the header or row is empty
+    '
+    local delimiter=","
+    local header
+    local row
+    local key
+    local value
+    local name="CSV_ROW"
+
+    while [ ${#} -gt 0 ]; do
+        case "${1}" in
+            -d | --delimiter)
+                delimiter="${2}"
+                shift 2
+                ;;
+            *)
+                if [ -z "${header}" ]; then
+                    header="${1}"
+                elif [ -z "${row}" ]; then
+                    row="${1}"
+                else
+                    name="${1}"
+                fi
+                shift 1
+                ;;
+        esac
+    done
+
+    debug-vars header row name delimiter
+
+    if [ -z "${header}" ] || [ -z "${row}" ]; then
+        return 1
+    fi
+
+    # Set up the dictionary and link it to the variable name
+    declare -xn dict="${name}"
+    dict=()
+
+    debug-vars -v dict name
+
+    # Split the header and row
+    csv-split -d "${delimiter}" "${header}" header
+    csv-split -d "${delimiter}" "${row}" row
+
+    debug-vars header row
+
+    # Create the dictionary
+    for i in "${!header[@]}"; do
+        key="${header[$i]}"
+        value="${row[$i]}"
+        debug-vars key value
+        dict["${key}"]="${value}"
     done
 }
 
@@ -490,6 +591,7 @@ function csv-get() {
     elif [[ -n "${filepath}" ]]; then
         data=$(cat "${filepath}")
     else
+        echo "warning: no csv data" >&2
         return 1
     fi
 
@@ -571,6 +673,10 @@ function csv-get() {
 
         # Determine if the row should be included
         include=false
+        ## if there are no row indices or conditions, include all rows
+        if [[ "${#row_indices[@]}" -eq 0 && "${#where_conditions[@]}" -eq 0 ]]; then
+            include=true
+        else
         ## by index
         if [[ -n "${row_indices[@]}" ]]; then
             for i in "${row_indices[@]}"; do
@@ -581,7 +687,7 @@ function csv-get() {
             done
         fi
         ## by condition
-        if ! ${include} && [[ -n "${where_conditions[@]}" ]]; then
+        if ! ${include} && [[ "${#where_conditions[@]}" -gt 0 ]]; then
             # Set up the variables for the condition
             ## by column name
             if [[ -n "${header}" ]]; then
@@ -599,6 +705,7 @@ function csv-get() {
                     break
                 fi
             done
+            fi
         fi
 
         # If the row should be included, process it
