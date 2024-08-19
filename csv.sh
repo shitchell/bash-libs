@@ -1,7 +1,8 @@
 : '
 Functions for working with CSV files
 '
-    declare -a items
+
+include-source debug
 
 function csv-quote {
     :  'Quote a string for use in a CSV file
@@ -191,9 +192,12 @@ function csv-split {
     local __char
     local __next_char
     local __row_chars=${#__row}
+    debug-vars __row
     for (( i=0; i<${__row_chars}; i++ )); do
         __char="${__row:$i:1}"
         __next_char="${__row:$((i+1)):1}"
+
+        # echo "i=${i} delim=${__delimiter}  in_q=${__in_quotes}  chr=${__char}  n_chr=${__next_char}  field=${__field}" >&2
 
         # If the character is a quote, determine if we need to toggle the flag
         # or add a quoted quote to the field
@@ -211,7 +215,7 @@ function csv-split {
         fi
 
         # If the character is a delimiter and we're not in quotes, add the field
-        if [[ "${__char}" == "${__delimiter}" ]] && ! ${in_quotes}; then
+        if [[ "${__char}" == "${__delimiter}" ]] && ! ${__in_quotes}; then
             # Double check if we need to unquote the field
             if [[ "${__field}" == '"'*'"' ]]; then
                 __field=$(csv-unquote "${__field}")
