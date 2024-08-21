@@ -487,6 +487,7 @@ function source-url() {
     local filename="${url##*/}"
     shift 1
     local source_args=("${@}")
+    local __exit_code=0
 
     # treat the filename as a url
     if [ "${SHOW_LOCATION}" -eq 1 ] 2>/dev/null; then
@@ -517,11 +518,13 @@ function source-url() {
     # source the contents of the downloaded script
     if [ "${DO_SOURCE}" -eq 1 ]; then
         source "${script_file}" "${source_args[@]}"
-        local source_exit_code=$?
+        __exit_code=${?}
+        # If successful, add the URL to the list of included libs
+        INCLUDE_LIBS["${filename}"]="${url}"
     fi
 
     # return the exit code of the sourced script if available
-    return ${source_exit_code:-0}
+    return ${__exit_code}
 }
 
 # Import a shell script from a filename
@@ -537,6 +540,7 @@ function source-lib() {
     local filename="${1}"
     shift 1
     local source_args=("${@}")
+    local __exit_code=0
 
     # get the path to the file
     local filepath=$(__bash_libs_get_filepath "${filename}")
@@ -564,7 +568,9 @@ function source-lib() {
             echo "$(functionname): sourcing '${filepath}'"
         fi
         source "${filepath}" "${source_args[@]}"
-        return $?
+        __exit_code=${?}
+        # If successful, add the file to the list of included libs
+        INCLUDE_LIBS["${filename}"]="${filepath}"
     fi
 }
 
@@ -581,7 +587,7 @@ function include-source() {
     '
     #__debug "_call(${*})"
 
-    local exit_code=0
+    local __exit_code=0
 
     __include_source_parse_args "$@"
     case $? in 0);; 3) return 0 ;; *) return $?;; esac
@@ -589,24 +595,24 @@ function include-source() {
     # ensure the path is not empty
     if [ -z "${SOURCE_PATH}" ]; then
         __include_source_help_usage >&2
-        exit_code=1
+        __exit_code=1
     else
         # determine whether to treat the path as a filepath or url
         if [[ "${SOURCE_PATH}" =~ ^https?:// ]]; then
             # treat the path as a url
             #__debug "sourcing url: ${SOURCE_PATH}"
             source-url "${SOURCE_PATH}" "${SOURCE_ARGS[@]}"
-            exit_code=${?}
+            __exit_code=${?}
         else
             # treat the path as a filepath
             #__debug "sourcing lib: ${SOURCE_PATH}"
             source-lib "${SOURCE_PATH}" "${SOURCE_ARGS[@]}"
-            exit_code=${?}
+            __exit_code=${?}
         fi
     fi
 
     unset SOURCE_PATH SOURCE_ARGS SHOW_LOCATION VERBOSE DO_CAT DO_SOURCE
-    return ${exit_code}
+    return ${__exit_code}
 }
 
 # Alias for include-source
@@ -975,4 +981,6 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     ############################################################################
 
     export INCLUDE_SOURCE="include-source"
+    export INCLUDE_FILE=$(realpath "${BASH_SOURCE[0]}")
+    declare -Ax INCLUDE_LIBS=( ["${INCLUDE_FILE##*/}"]="${INCLUDE_FILE}" )
 fi
