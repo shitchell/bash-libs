@@ -1,3 +1,5 @@
+include-source debug
+
 # returns the name of the current shell
 function get-shell() {
     basename "$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')" \
@@ -1091,31 +1093,31 @@ function search-back() {
         @usage
             [-d/--directory] [-f/--file] [-h/--help] [-m/--max-depth <num>]
             [-v/--verbose] <name>
-        
+
         @option -h/--help
             Print this help message and exit.
-        
+
         @option -d/--directory
             Search for a directory.
-        
+
         @option -f/--file
             Search for a file.
-        
+
         @option -m/--max-depth <num>
             The maximum number of directories to search before giving up.
-        
+
         @option -v/--verbose
             Print the directories being searched.
-        
+
         @arg name
             The name of the file or directory to search for.
-        
+
         @stdout
             The full path to the file or directory if found.
-        
+
         @return 0
             If the file or directory is found.
-        
+
         @return 1
             If the file or directory is not found.
     '
@@ -1383,4 +1385,398 @@ function prompt-continue() {
             return 1
         fi
     fi
+}
+
+# TODO: *maybe* do something about text running off the screen
+# TODO: when aligning the text, only consider printable characters in the maths
+function printf-at() {
+    :  'Print text at a specific location in the terminal
+
+        Prints text at a specific location in the terminal using ANSI escape
+        sequences and `printf`. The cursor is moved to the specified location
+        before printing the text and then moved back to its original location
+        after the text is printed.
+
+        @usage
+            [-r/--row <num>] [-c/--col <num>]
+            [-l/--left[=<num>]] [-r/--right[=<num>]]
+            [-t/--top[=<num>]] [-b/--bottom[=<num>]]
+            [-L/--align-left | -R/--align-right | -C/--align-center]
+            [-h/--help] [x,y] <format> [arguments...]
+
+        @option -r/--row <num>
+            Move the cursor to row <num> before printing the text.
+
+        @option -c/--col <num>
+            Move the cursor to column <num> before printing the text.
+
+        @option -l/--left[=<num>]
+            Move the cursor <num> columns from the left before printing the
+            text. Defaults to 1.
+
+        @option -r/--right[=<num>]
+            Move the cursor <num> columns from the right before printing the
+            text. Defaults to 1.
+
+        @option -t/--top[=<num>]
+            Move the cursor <num> rows from the top before printing the text.
+            Defaults to 1.
+
+        @option -b/--bottom[=<num>]
+            Move the cursor <num> rows from the bottom before printing the text.
+            Defaults to 1.
+
+        @option -L/--align-left
+            Align the text with the specified location on the left.
+
+        @option -R/--align-right
+            Align the text with the specified location on the right.
+
+        @option -C/--align-center
+            Align the text with the specified location in the center.
+
+        @option -h/--help
+            Print this help message and exit.
+
+        @optarg x,y
+            The row and column to move the cursor to before printing the text.
+            This is equivalent to using `--row x` and `--col y`.
+
+        @arg <format>
+            The text to print with plain characters, escape sequences, and/or
+            format specifiers.
+
+        @arg* arguments
+            The arguments to pass to `printf` for formatting the text.
+    '
+    # Default values
+    local __row __col
+    local __left __right __top __bottom
+    local __do_align_left=false
+    local __do_align_right=false
+    local __do_align_center=false
+    local __format_string __args=() __print_string
+
+    # Parse the options
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -y | --row)
+                __row="${2}"
+                __top=
+                __bottom=
+                shift 2
+                ;;
+            -x | --col)
+                __col="${2}"
+                __left=
+                __right=
+                shift 2
+                ;;
+            -l* | --left | --left=*)
+                [[ "${1}" =~ ^(-l|--left=)(.*)$ ]] \
+                    && __left="${BASH_REMATCH[2]}" \
+                    || __left=0
+                __col=
+                __right=
+                shift 1
+                ;;
+            -r* | --right | --right=*)
+                [[ "${1}" =~ ^(-r|--right=)(.*)$ ]] \
+                    && __right="${BASH_REMATCH[2]}" \
+                    || __right=0
+                __col=
+                __left=
+                shift 1
+                ;;
+            -t* | --top | --top=*)
+                [[ "${1}" =~ ^(-t|--top=)(.*)$ ]] \
+                    && __top="${BASH_REMATCH[2]}" \
+                    || __top=0
+                __row=
+                __bottom=
+                shift 1
+                ;;
+            -b* | --bottom | --bottom=*)
+                [[ "${1}" =~ ^(-b|--bottom=)(.*)$ ]] \
+                    && __bottom="${BASH_REMATCH[2]}" \
+                    || __bottom=0
+                __row=
+                __top=
+                shift 1
+                ;;
+            -L | --align-left)
+                __do_align_left=true
+                __do_align_right=false
+                __do_align_center=false
+                shift 1
+                ;;
+            -R | --align-right)
+                __do_align_right=true
+                __do_align_left=false
+                __do_align_center=false
+                shift 1
+                ;;
+            -C | --align-center)
+                __do_align_center=true
+                __do_align_left=false
+                __do_align_right=false
+                shift 1
+                ;;
+            --)
+                shift 1
+                # Collect any remaining arguments as the format string or args
+                if [[ ${#} -gt 0 ]]; then
+                    if [[ -z "${__format_string}" ]]; then
+                        # If this is the first positional argument, check if it
+                        # is in the 'x,y' format
+                        if [[ "${1}" =~ ^([0-9]+),([0-9]+)$ ]]; then
+                            __row="${BASH_REMATCH[1]}"
+                            __col="${BASH_REMATCH[2]}"
+                        else
+                            __format_string="${1}"
+                        fi
+                    else
+                        __args+=("${@}")
+                    fi
+                fi
+                break
+                ;;
+            *)
+                if [[ -z "${__format_string}" ]]; then
+                    # If this is the first positional argument, check if it
+                    # is in the 'x,y' format
+                    if [[ "${1}" =~ ^([0-9]+),([0-9]+)$ ]]; then
+                        __row="${BASH_REMATCH[1]}"
+                        __col="${BASH_REMATCH[2]}"
+                    else
+                        __format_string="${1}"
+                    fi
+                else
+                    __args+=("${1}")
+                fi
+                shift 1
+                ;;
+        esac
+    done
+
+    # debug-vars \
+    #     __row __col __left __right __top __bottom \
+    #     __do_align_left __do_align_right __do_align_center \
+    #     __format_string __args
+
+    # ---- empty string exit ----
+
+    # If no format string is given, simply exit
+    [[ -z "${__format_string}" ]] && return 0
+
+    # ---- formatting
+
+    # Format the string
+    ## note: we add a 'x' to the end of the string to ensure that we retain
+    ## any (missing) trailing newlines
+    if ! __print_string=$(
+        printf -- "${__format_string}" "${__args[@]}"
+        printf -- x
+    ); then
+        echo "error: invalid format string" >&2
+        return 1
+    else
+        ## note: now we remove the x, and when we do that using this variable
+        ## syntax, it ensures that: 1) if a newline was at the end of the
+        ## string, it stays, or 2) if there was no newline at the end of the
+        ## string, our __print_string variable won't have one either
+        __print_string="${__print_string%x}"
+    fi
+
+    # ---- convert relative positions
+
+    # If any relative positions are given, then calculate the absolute positions
+    if [[ -n "${__left}" ]]; then
+        if [[ "${__left}" =~ ^[0-9]+%$ ]]; then
+            __left=$((COLUMNS * ${__left%?} * 100 / 10000))
+        fi
+        __col="${__left}"
+    elif [[ -n "${__right}" ]]; then
+        if [[ "${__right}" =~ ^[0-9]+%$ ]]; then
+            __right=$((COLUMNS * ${__right%?} * 100 / 10000))
+        fi
+        __col=$((COLUMNS - __right))
+    fi
+    if [[ -n "${__top}" ]]; then
+        if [[ "${__top}" =~ ^[0-9]+%$ ]]; then
+            __top=$((LINES * ${__top%?} * 100 / 10000))
+        fi
+        __row="${__top}"
+    elif [[ -n "${__bottom}" ]]; then
+        if [[ "${__bottom}" =~ ^[0-9]+%$ ]]; then
+            __bottom=$((LINES * ${__bottom%?} * 100 / 10000))
+        fi
+        __row=$((LINES - __bottom))
+    fi
+
+    # ---- no position given, normal print
+
+    # If __col and __row are empty, then print the string as is
+    if [[ -z "${__col}" ]] && [[ -z "${__row}" ]]; then
+        printf '%s' "${__print_string}"
+        return 0
+    fi
+
+    # ---- print at position
+
+    # If only one coordinate is provided, set the other to 0
+    [[ -z "${__col}" ]] && __col=0
+    [[ -z "${__row}" ]] && __row=0
+
+    # If any alignment options are given, then shift the column position from
+    # its current value based on the length of the string
+    if ${__do_align_left}; then
+        :
+    elif ${__do_align_right}; then
+        let __col-=${#__format_string}
+    elif ${__do_align_center}; then
+        let __col-=${#__format_string}/2
+    fi
+
+    # debug-vars __row __col __print_string
+
+    # ---- the magic ----
+    ## save the cursor position
+    tput sc
+    ## move the cursor to the specified position
+    tput cup "${__row}" "${__col}"
+    ## print the string
+    printf '%s' "${__print_string}"
+    ## restore the cursor position
+    tput rc
+}
+
+function env-diff() {
+    :  'Determine the affect on the environment of running a command
+
+        Determine the affect on the environment of running a command by
+        comparing the environment before and after running the command. The
+        command is run in a subshell to prevent changes to the current shell.
+
+        @usage
+            [-d/--declared] [-D/--no-declared] [-v] [--] command [args...]
+
+        @option -d/--declared
+            Include all set variables from `declare -p`.
+
+        @option -D/--no-declared
+            Only compare the output of `env`.
+
+        @option -v
+            Verbose output.
+
+        @arg command
+            The command to run.
+
+        @arg* args
+            The arguments to pass to the command.
+    '
+    local __do_declared=true
+    local __do_verbose=false
+    local __cmd=()
+    local __tmp_dir __tmp_before __tmp_after
+    local __cmd_esc __tmp_before_esc __tmp_after_esc
+
+    # Parse the options
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -d | --declared)
+                __do_declared=true
+                shift 1
+                ;;
+            -D | --no-declared)
+                __do_declared=false
+                shift 1
+                ;;
+            -v)
+                __do_verbose=true
+                shift 1
+                ;;
+            -V)
+                __do_verbose=false
+                shift 1
+                ;;
+            --)
+                shift 1
+                __cmd+=("${@}")
+                break
+                ;;
+            *)
+                __cmd+=("${1}")
+                shift 1
+                ;;
+        esac
+    done
+
+    # Ensure a command was given
+    if [[ ${#__cmd[@]} -eq 0 ]]; then
+        echo "error: no command given" >&2
+        return 1
+    fi
+
+    # Create a temporary directory to store the environment files. We do this
+    # rather than simply storing the environment in variables because to do that
+    # would require running `env` and `declare` in subshells, which might
+    # introduce differences in the environment.
+    __tmp_dir=$(mktemp -d --tmpdir "env-diff.XXXXXXXXXX")
+    __tmp_before="${__tmp_dir}/before"
+    __tmp_after="${__tmp_dir}/after"
+    trap 'rm -rf "${__tmp_dir}" 2>/dev/null' RETURN
+
+    ${__do_verbose} && echo "* set up temporary directory: ${__tmp_dir}"
+
+    # Escape all variables that will be used in the subshell
+    __cmd_esc="${__cmd[0]}"
+    [[ ${#__cmd[@]} -gt 1 ]] && __cmd_esc+=$(printf ' %q' "${__cmd[@]:1}")
+    __tmp_before_esc=$(printf '%q' "${__tmp_before}")
+    __tmp_after_esc=$(printf '%q' "${__tmp_after}")
+
+    ${__do_verbose} && echo "* launching subshell"
+
+    env -i bash --noprofile --norc <<EOF
+        # Get the environment before running the command
+        env > ${__tmp_before_esc}
+        ${__do_declared} && declare -p >> ${__tmp_before_esc}
+        if ${__do_verbose}; then
+            echo "* env before:"
+            env
+            if ${__do_declared}; then
+                echo "* declared before:"
+                declare -p
+            fi
+        fi
+
+        # Run the command
+        ${__do_verbose} && echo "* running command: ${__cmd_esc}"
+        eval "${__cmd_esc}"
+
+        # Get the environment after running the command
+        env > ${__tmp_after_esc}
+        ${__do_declared} && declare -p >> ${__tmp_after_esc}
+        if ${__do_verbose}; then
+            echo "* env after:"
+            env
+            if ${__do_declared}; then
+                echo "* declared after:"
+                declare -p
+            fi
+        fi
+
+        if ${__do_verbose}; then
+            echo "* got before length: \$(wc -c < ${__tmp_before_esc})"
+            echo "* got after length:  \$(wc -c < ${__tmp_after_esc})"
+        fi
+
+        ${__do_verbose} && echo "* diffing the environment ... "
+
+        # Print the differences
+        diff --label env.before --label env.after \
+            --changed-group-format='%<%>' --unchanged-group-format='' \
+            ${__tmp_before_esc} ${__tmp_after_esc}
+EOF
 }
