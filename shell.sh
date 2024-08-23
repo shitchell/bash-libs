@@ -1841,9 +1841,9 @@ function printf-at() {
         @usage
             [-r/--row <num>] [-c/--col <num>]
             [-l/--left[=<num>]] [-r/--right[=<num>]]
-            [-t/--top[=<num>]] [-b/--bottom[=<num>]] 
+            [-t/--top[=<num>]] [-b/--bottom[=<num>]]
             [-L/--align-left | -R/--align-right | -C/--align-center]
-            [-h/--help] [x,y] <format> [arguments...] 
+            [-h/--help] [x,y] <format> [arguments...]
 
         @option -r/--row <num>
             Move the cursor to row <num> before printing the text.
@@ -2101,7 +2101,7 @@ function env-diff() {
 
         @usage
             [-d/--declared] [-D/--no-declared] [-v] [--] command [args...]
-    
+
         @option -d/--declared
             Include all set variables from `declare -p`.
 
