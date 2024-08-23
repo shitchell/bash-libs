@@ -1,3 +1,7 @@
+: '
+Shell related functions
+'
+
 include-source debug
 
 # returns the name of the current shell
@@ -1386,6 +1390,443 @@ function prompt-continue() {
         fi
     fi
 }
+
+function describe-var() (
+    :  'Return the type and value of a bash variable
+
+        Return the type and value of a bash variable as returned by `declare`.
+        Optionally, can return a more human-readable type and inferred types
+        (e.g.: integers and floats).
+
+        Output is returned in the format "<type>\t<value>".
+
+        @usage
+            [-h/--human] [-i/--infer] [-f/--follow-links]
+            [-t/--type] [-v/--value] [-a/--all] <var>
+
+        @optarg -h/--human
+            Return a human-readable type. Defaults to false.
+
+        @optarg -i/--infer
+            Infer the type of the variable. Implies --human. Defaults to false.
+
+        @optarg -f/--follow-links
+            Follow linked variables. Defaults to false.
+
+        @option -t/--type
+            Only show the variable type.
+
+        @option -v/--value
+            Only show the variable value.
+
+        @option -a/--all
+            Show the variable type and value. This is the default.
+
+        @arg <var>
+            The variable to check.
+
+        @stdout
+            The type of the variable.
+
+        @return 0
+            If the type is determined successfully.
+
+        @return 1
+            If the type is not determined successfully.
+    '
+    # Default values
+    local do_human=false
+    local do_infer=false
+    local do_follow_links=false
+    local show_type=true
+    local show_value=true
+    local var_name var_value
+    local __var_type __var_type_char __var_type_chars=() __var_types=()
+    local regex
+    local opts=() # describe-var options to passthrough if recursing
+    local decl
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -h | --human)
+                do_human=true
+                opts+=("${1}")
+                shift
+                ;;
+            -i | --infer)
+                do_infer=true
+                opts+=("${1}")
+                shift
+                ;;
+            -f | --follow-links)
+                do_follow_links=true
+                opts+=("${1}")
+                shift
+                ;;
+            -t | --type)
+                do_type=true
+                do_value=false
+                opts+=("${1}")
+                shift
+                ;;
+            -v | --value)
+                do_value=true
+                do_type=false
+                opts+=("${1}")
+                shift
+                ;;
+            -a | --all)
+                do_type=true
+                do_value=true
+                opts+=("${1}")
+                shift
+                ;;
+            --)
+                shift
+                var_name="${1}"
+                break
+                ;;
+            *)
+                var_name="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # Get the variable declaration
+    decl=$(declare -p "${var_name}" 2>&1)
+    regex="^declare -([^ ]+) ${var_name}=(.*)"
+    if [[ "${decl}" =~ ${regex} ]]; then
+        __var_type="${BASH_REMATCH[1]}"
+        var_value="${BASH_REMATCH[2]}"
+    elif [[ "${decl}" =~ "declare: ${var_name}: not found"$ ]]; then
+        __var_type="N"
+    else
+        __var_type="U"
+    fi
+
+    # Clean up the value
+    ## Remove leading/trailing double quotes
+    var_value="${var_value#\"}"
+    var_value="${var_value%\"}"
+    ## Convert the trailing ' )' in maps to just ')'
+    if [[ "${__var_type}" == *"A"* && "${var_value}" == *" )" ]]; then
+        var_value="${var_value% )})"
+    fi
+
+    debug "var_name:  ${var_name}"
+    debug "__var_type:  ${__var_type}"
+    debug "var_value: ${var_value}"
+
+    # Check if the variable is linked
+    if [[ "${__var_type}" == *"n"* ]] && ${do_follow_links}; then
+        # Trim the quotes off the value to get the linked variable name
+        if [[ -z "${var_value}" ]]; then
+            echo "error: could not determine linked variable" >&2
+            return 1
+        fi
+        describe-var "${opts[@]}" "${var_value}"
+        return ${?}
+    fi
+
+    # Sort the type chars for consistent output
+    ## read the chars into a sorted array
+    readarray -t __var_type_chars < <(grep -o . <<< "${__var_type}" | sort)
+    ## join the array back into a sorted string
+    __var_type="${__var_type_chars[*]}"
+    __var_type="${__var_type// /}"
+
+    debug "__var_type_chars: ${__var_type_chars[*]}"
+    debug "__var_type:       $(printf %q "${__var_type}")"
+
+    # Determine the human readable / inferred types
+    if ${do_human} || ${do_infer}; then
+        for __var_type_char in "${__var_type_chars[@]}"; do
+            debug "processing __var_type_char: ${__var_type_char}"
+            case "${__var_type_char}" in
+                *a*) __var_types+=("array") ;;
+                *A*) __var_types+=("map") ;;
+                *i*) __var_types+=("integer") ;;
+                *n*) __var_types+=("link") ;;
+                *t*) __var_types+=("trace") ;;
+                *x*) __var_types+=("export") ;;
+                *r*) __var_types+=("readonly"); ;;
+                *l*) __var_types+=("string" "lower") ;;
+                *u*) __var_types+=("string" "upper") ;;
+                *-*) __var_types+=("string")
+                    if ${do_infer}; then
+                        # Try to determine a type based on patterns
+                        if [[ "${var_value}" == "true" || "${var_value}" == "false" ]]; then
+                            __var_types+=("boolean")
+                        elif [[ "${var_value}" =~ ^[0-9]+$ ]]; then
+                            __var_types+=("integer")
+                        elif [[ "${var_value}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                            __var_types+=("float")
+                        fi
+                    fi
+                    ;;
+                *N*) __var_types+=("unset") ;;
+                *)   __var_types+=("unknown") ;;
+            esac
+        done
+    fi
+
+    # Print the type and value
+    if ${do_type}; then
+        if ${do_human}; then
+            (IFS=, ; echo -n "${__var_types[*]}")
+        else
+            echo -n "${__var_type}"
+        fi
+    fi
+    if ${do_type} && ${do_value}; then
+        printf '\t'
+    fi
+    if ${do_value}; then
+        printf '%s' "${var_value}"
+    fi
+    echo
+)
+
+function negate() {
+    :  'Negate "true"<->"false" and "1"<->"-1"
+
+        Negate the value of a boolean or integer. If the value is "true" or "1",
+        then the result will be "false" or "-1". If the value is "false" or "-1",
+        then the result will be "true" or "1".
+
+        @usage
+            <value>
+
+        @arg <value>
+            The value to negate.
+
+        @stdout
+            The negated value.
+
+        @return 0
+            If the value is negated successfully.
+
+        @return 1
+            If the value is not negated successfully.
+    '
+    local value="${1}"
+
+    case "${value}" in
+        true)   echo "false" ;;
+        false)  echo "true" ;;
+        1)      echo "-1" ;;
+        -1)     echo "1" ;;
+        *)
+            echo "error: invalid value: ${value}" >&2
+            return 1
+            ;;
+    esac
+}
+
+function truthy() (
+    :  'Return 0 for truthy values, else 1
+
+        Uses pythonic logic for determining truthiness. The following values are
+        considered falsey:
+            - false
+            - 0
+            - null
+            - empty string
+            - empty array
+            - empty object
+
+        @usage
+            [--varname] [-v/--verbose] <value>
+
+        @option --varname
+            If specified, the value is the name of a variable.
+
+        @option -v/--verbose
+            Output "true" or "false".
+
+        @arg <value>
+            The value to check for truthiness.
+
+        @return 0
+            If the value is truthy.
+
+        @return 1
+            If the value is falsey.
+    '
+    local __is_var=false
+    local __var_description __var_type
+    local value
+    local -i exit_code=0
+    local do_verbose=false
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            --var | --varname)
+                __is_var=true
+                shift
+                ;;
+            -v | --verbose)
+                do_verbose=true
+                shift
+                ;;
+            --)
+                shift
+                value="${1}"
+                break
+                ;;
+            *)
+                value="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # Check if the value is a variable
+    if ${__is_var}; then
+        # Get the type and value
+        __var_description=$(describe-var --human --all --follow-links "${value}")
+        __var_type="${__var_description%%$'\t'*}"
+        debug-vars __var_type
+        # we intentionally do not use double quotes here since the value comes
+        # from `declare` and will be perfectly escaped
+        eval "value=${__var_description#*$'\t'}"
+    else
+        __var_type="string"
+    fi
+
+    debug-vars __var_description __var_type value
+
+    case "${__var_type}" in
+        *array* | *map*)
+            debug "evaluating as array"
+            [[ ${#value[@]} -eq 0 ]] && exit_code=1 ;;
+        *integer*)
+            debug "evaluating as integer"
+            [[ "${value}" -eq 0 ]] && exit_code=1 ;;
+        *string*)
+            debug "evaluating as string"
+            case "${value}" in
+                false) exit_code=1 ;;
+                0)     exit_code=1 ;;
+                "")    exit_code=1 ;;
+            esac
+            ;;
+        *N*) # Not set
+            debug "evaluating as not set"
+            exit_code=1 ;;
+        *U*) # unset
+            debug "evaluating as unset"
+            exit_code=1 ;;
+        *)
+            echo "warning: unknown type: ${__var_type}" >&2
+            exit_code=1
+            ;;
+    esac
+
+    if ${do_verbose}; then
+        ((exit_code == 0)) && echo "true" || echo "false"
+    fi
+    return ${exit_code}
+)
+
+function check-sudo() (
+    :  'Validate whether a user has sudo access
+
+        Check if the current user has sudo access, optionally only for specific
+        commands (e.g.: if the user has sudo access for `apt-get` but not for
+        `reboot`). If no arguments are supplied, this function will simply check
+        if the user can run `sudo -v`. If arguments are supplied, they will be
+        individually checked with the `sudo [-n] -l <command>`, and if the user
+        does not have access to any of the commands, the function will exit with
+        an error.
+
+        @usage
+            [-v/--verbose] [-q/--quiet] [<command> [<command> ...]]
+
+        @option -v/--verbose
+            Print the commands being checked and the results.
+
+        @option -q/--quiet
+            Suppress all output.
+
+        @arg <command>
+            Check if the user has sudo access for the specified command.
+
+        @return 0
+            If the user has sudo access.
+
+        @return 1
+            If the user does not have sudo access
+        '
+    # Default values
+    local do_quiet=true
+    local commands=()
+    local sudo_cmds=()
+    local cmd_string=""
+    local exit_code=0
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -v | --verbose)
+                do_quiet=false
+                shift
+                ;;
+            -q | --quiet)
+                do_quiet=true
+                shift
+                ;;
+            --)
+                shift
+                commands+=("${@}")
+                break
+                ;;
+            *)
+                commands+=("${1}")
+                shift
+                ;;
+        esac
+    done
+
+    # If we should be quiet, then redirect all output to /dev/null and set up
+    # a trap to restore the output when the function exits
+    if ${do_quiet}; then
+        function __restore_output() {
+            exec 1>&9 2>&8 9>&- 8>&-
+        }
+        exec 9>&1 8>&2 1>/dev/null 2>&1
+        trap __restore_output RETURN
+    fi
+
+    # If no commands were supplied, check if the user can run `sudo -v`
+    if [[ ${#commands[@]} -eq 0 ]]; then
+        cmd_str="sudo -n -v"
+        if eval "${cmd_str}" &> /dev/null; then
+            echo "sudo access granted"
+            exit_code=0
+        else
+            echo "sudo access denied"
+            exit_code=1
+        fi
+    else
+        # Check if the user has sudo access for the specified commands
+        for cmd in "${commands[@]}"; do
+            cmd_str="sudo -n -l ${cmd}"
+            echo -n "sudo ${cmd} ... "
+            if eval "${cmd_str}" &> /dev/null; then
+                echo "granted"
+            else
+                echo "denied"
+                exit_code=1
+            fi
+        done
+    fi
+
+    return ${exit_code}
+)
 
 # TODO: *maybe* do something about text running off the screen
 # TODO: when aligning the text, only consider printable characters in the maths
