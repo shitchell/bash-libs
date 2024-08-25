@@ -685,6 +685,15 @@ function asrun() {
     local as_user="${AS_USER:-asuser}"
     local cmd_args=( "${@:2}" )
     local cmd_str="${cmd_name}"
+
+    # If we're already logged in as asuser, just run the command
+    if [[ "${USER}" == "${as_user}" ]]; then
+        debug "Already running as '${as_user}', running command directly"
+        "${cmd_name}" "${cmd_args[@]}"
+        return ${?}
+    fi
+
+    # Escape the command arguments for use in `bash -c "..."`
     [[ ${#cmd_args[@]} -gt 0 ]] && cmd_str+=$(printf ' %q' "${cmd_args[@]}")
     debug-vars cmd_name cmd_args cmd_str
 

@@ -2,7 +2,7 @@
 Functions for working with CSV files
 '
 
-include-source 'debug'
+include-source debug
 
 function csv-quote {
     :  'Quote a string for use in a CSV file
@@ -191,18 +191,31 @@ function csv-split {
     local __field=""
     local __char
     local __next_char
-    for (( i=0; i<${#__row}; i++ )); do
+    local __row_chars=${#__row}
+    debug-vars __row
+    for (( i=0; i<${__row_chars}; i++ )); do
         __char="${__row:$i:1}"
         __next_char="${__row:$((i+1)):1}"
 
-        # If the character is a quote, toggle the in_quotes flag
+        # echo "i=${i} delim=${__delimiter}  in_q=${__in_quotes}  chr=${__char}  n_chr=${__next_char}  field=${__field}" >&2
+
+        # If the character is a quote, determine if we need to toggle the flag
+        # or add a quoted quote to the field
         if [[ "${__char}" == '"' ]]; then
-            ${__in_quotes} && __in_quotes=false || __in_quotes=true
+            # If the quote comes before a quoted quote, then add a single quote
+            # to the field and skip past the next char (the quote)
+            if [[ "${__next_char}" == '"' ]]; then
+                __field+='"'
+                ((i++))
+                continue
+            else
+                ${__in_quotes} && __in_quotes=false || __in_quotes=true
+            fi
             continue
         fi
 
         # If the character is a delimiter and we're not in quotes, add the field
-        if [[ "${__char}" == "${__delimiter}" && ! ${__in_quotes} ]]; then
+        if [[ "${__char}" == "${__delimiter}" ]] && ! ${__in_quotes}; then
             # Double check if we need to unquote the field
             if [[ "${__field}" == '"'*'"' ]]; then
                 __field=$(csv-unquote "${__field}")
@@ -211,28 +224,14 @@ function csv-split {
             __field=""
             continue
         fi
+        
+        __field+="${__char}"
 
-        # If the character is a quote and the next character is a quote, add a
-        # single quote to the field and skip the next character
-        if [[ "${__char}" == "\"" && "${__next_char}" == "\"" ]]; then
-            __field="${__field}\""
-            ((i++))
-            continue
+        # Handle the last field
+        if ((i == __row_chars - 1 )); then
+            __array+=("${__field}")
         fi
-
-        # Add the character to the field
-        __field="${__field}${__char}"
     done
-
-    # Handle the last field
-    if [ -n "${__row}" ]; then
-        # Remove surrounding quotes and unescape double quotes if field is quoted
-        if [[ "$row" =~ ^\".*\"$ ]]; then
-            __row="${__row:1:-1}"
-            __row="${__row//\"\"/\"}"
-        fi
-        __array+=("${__row}")
-    fi
 
     return 0
 }
@@ -300,27 +299,27 @@ function csv-echo() { csv-join "${@}"; }
 function csv-column-index() {
     :  'Get the index of a column given its name
 
-    @usage
-        csv-column-index [-f/--file <file>] <name>
-        cat <file> | csv-column-index <name>
+        @usage
+            csv-column-index [-f/--file <file>] <name>
+            cat <file> | csv-column-index <name>
 
-    @option -f/--file <file>
-        The CSV file to read from
+        @option -f/--file <file>
+            The CSV file to read from
 
-    @arg name
-        The name of the column to find
+        @arg name
+            The name of the column to find
 
-    @stdout
-        The index of the column
+        @stdout
+            The index of the column
 
-    @return 0
-        Successful completion
+        @return 0
+            Successful completion
 
-    @return 1
-        If the column is not found
+        @return 1
+            If the column is not found
 
-    @return 2
-        If the file could not be read (does not exist, no permissions, etc.)
+        @return 2
+            If the file could not be read (does not exist, no permissions, etc.)
     '
     local column_name
     local filepath
@@ -682,34 +681,34 @@ function csv-get() {
         if [[ "${#row_indices[@]}" -eq 0 && "${#where_conditions[@]}" -eq 0 ]]; then
             include=true
         else
-            ## by index
-            if [[ -n "${row_indices[@]}" ]]; then
-                for i in "${row_indices[@]}"; do
-                    if [[ "${index}" -eq "${i}" ]]; then
-                        include=true
-                        break
-                    fi
+        ## by index
+        if [[ -n "${row_indices[@]}" ]]; then
+            for i in "${row_indices[@]}"; do
+                if [[ "${index}" -eq "${i}" ]]; then
+                    include=true
+                    break
+                fi
+            done
+        fi
+        ## by condition
+        if ! ${include} && [[ "${#where_conditions[@]}" -gt 0 ]]; then
+            # Set up the variables for the condition
+            ## by column name
+            if [[ -n "${header}" ]]; then
+                for i in "${!header[@]}"; do
+                    eval "${header[$i]}=${fields[$i]}" 2>/dev/null
                 done
             fi
-            ## by condition
-            if ! ${include} && [[ "${#where_conditions[@]}" -gt 0 ]]; then
-                # Set up the variables for the condition
-                ## by column name
-                if [[ -n "${header}" ]]; then
-                    for i in "${!header[@]}"; do
-                        eval "${header[$i]}=${fields[$i]}" 2>/dev/null
-                    done
-                fi
-                ## by index
-                set -- "${fields[@]}"
+            ## by index
+            set -- "${fields[@]}"
 
-                # Evaluate the conditions
-                for condition in "${where_conditions[@]}"; do
-                    if eval "test ${condition}"; then
-                        include=true
-                        break
-                    fi
-                done
+            # Evaluate the conditions
+            for condition in "${where_conditions[@]}"; do
+                if eval "test ${condition}"; then
+                    include=true
+                    break
+                fi
+            done
             fi
         fi
 
