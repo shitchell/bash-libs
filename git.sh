@@ -19,19 +19,19 @@ function parse-git-command() {
 
         @usage
             <git command>
-        
+
         @arg+
             The git command to parse, separated as individual arguments
-        
+
         @setenv GIT_ARGS
             An array of the arguments to the git command
-        
+
         @setenv GIT_SUBCOMMAND
             The git subcommand
-        
+
         @setenv GIT_SUBCOMMAND_ARGS
             An array of the arguments to the git subcommand
-        
+
         @example
             parse-git-command git log --oneline
     '
@@ -102,16 +102,16 @@ function git-root() {
 
         @usage
             [path]
-        
+
         @optarg path
             The path to the git repository. Default: .
 
         @stdout
             The path to the root of the git repository
-        
+
         @return 0
             The path to the root of the git repository was found
-        
+
         @return 128
             Not in a git repository
     '
@@ -124,10 +124,10 @@ function git-relpath() {
 
         @usage
             <filepath>
-        
+
         @arg filepath
             The path to the file
-        
+
         @stdout
             The relative path of the file to the git repository root
     '
@@ -216,19 +216,19 @@ function git-commit-exists() {
 
         @usage
             <commit>
-        
+
         @arg commit
             The commit to check
-        
+
         @return 0
             The commit exists in the current repo
-        
+
         @return 1
             The commit does not exist in the current repo
-        
+
         @return 2
             The commit is not a valid hash
-        
+
         @return 3
             No commit was given
     '
@@ -278,10 +278,10 @@ function get-parent-merge-commit() {
 
         @stdout
             The merge commit that the specified commit is part of
-        
+
         @return 0
             The merge commit was found
-        
+
         @return 1
 
     '
@@ -860,6 +860,29 @@ function get-first-commit() {
     git rev-list --max-parents=0 HEAD
 }
 
+function resolve-commitish() {
+    :  'Resolve a commit-ish to a full commit hash
+
+        @usage
+            <commit-ish>
+
+        @arg commit-ish
+            The commit-ish to resolve
+
+        @stdout
+            The full commit hash of the commit-ish
+    '
+    local commitish="${1}"
+    local output
+    # `git rev-parse` will print the commitish to stdout even if it fails, then
+    # again to stderr. In the event of a failure, we want it to avoid printing
+    # the commitish twice / anything to stdout, so we only print to stdout on
+    # success
+    if output=$(git rev-parse "${commitish}"); then
+        echo "${output}"
+    fi
+}
+
 function ref-exists() {
     :  'Determine if the specified ref exists in the current repo
 
@@ -973,22 +996,71 @@ function resilient-push() {
             The changes could not be pushed to the remote
     '
     local push_options=( "${@}" )
-    git push "${push_options[@]}" #>/dev/null 2>&1
+    git -c push.default=current push "${push_options[@]}" >/dev/null 2>&1
     if [ ${?} -ne 0 ]; then
         # Rebase pull
-        git pull --rebase #>/dev/null 2>&1
-        git push "${push_options[@]}" #>/dev/null 2>&1
+        git pull --rebase >/dev/null 2>&1
+        git -c push.default=current push "${push_options[@]}" >/dev/null 2>&1
         if [ ${?} -ne 0 ]; then
             # Merge pull
             output=$(
-                git pull >/dev/null #2>&1
-                git push "${push_options[@]}" #2>&1
+                git pull 2>/dev/null
+                git -c push.default=current push "${push_options[@]}" 2>&1
             )
             exit_code=${?}
             if [ ${exit_code} -ne 0 ]; then
-                echo "${output}" >&2
+                [[ -n "${output}" ]] \
+                    && echo "${output}" >&2 \
+                    || echo "error: resilient-push failed to push" >&2
                 return ${exit_code}
             fi
         fi
+    fi
+}
+
+function git-latest-tag() {
+    :  'Get the latest tag in a brach or across all branches
+
+        @usage
+            [--all] [-n/--count <int>] [<commit-ish>]
+
+        @option --all
+            Get the latest tag across all branches
+
+        @option -n/--count <int>
+            The number of tags to return. Default: 1
+
+        @arg commit-ish
+            The commit-ish to search from. Default: HEAD
+
+        @stdout
+            The latest tag in the current repository
+    '
+    local do_all=false
+    local commitish="HEAD"
+    local count=1
+
+    # Parse the arguments
+    while [[ "${#}" -gt 0 ]]; do
+        case "${1}" in
+            --all)
+                do_all=true
+                shift
+                ;;
+            -n | --count)
+                count="${2}"
+                shift 2
+                ;;
+            *)
+                commitish="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    if ${do_all}; then
+        git tag --sort=-creatordate | head -n "${count}"
+    else
+        git describe --tags --abbrev=0 "${commitish}"
     fi
 }
