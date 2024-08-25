@@ -145,7 +145,6 @@ function _normalize_branch_flow() {
 }
 
 
-
 # @description Convert a branch flow file to a digraph file
 # @usage branch-flow-to-digraph [<branch-flow-file>]
 function branch-flow-to-digraph() {

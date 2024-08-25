@@ -9,6 +9,7 @@ function get-shell() {
     basename "$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')" \
         | tr '[:upper:]' '[:lower:]'
 }
+
 # cross-shell function for returning the calling function name
 function functionname() {
     # echo "${FUNCNAME[@]@Q}" >&2
