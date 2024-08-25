@@ -1,3 +1,9 @@
+: '
+Shell related functions
+'
+
+include-source debug
+
 # returns the name of the current shell
 function get-shell() {
     basename "$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')" \
@@ -1091,31 +1097,31 @@ function search-back() {
         @usage
             [-d/--directory] [-f/--file] [-h/--help] [-m/--max-depth <num>]
             [-v/--verbose] <name>
-        
+
         @option -h/--help
             Print this help message and exit.
-        
+
         @option -d/--directory
             Search for a directory.
-        
+
         @option -f/--file
             Search for a file.
-        
+
         @option -m/--max-depth <num>
             The maximum number of directories to search before giving up.
-        
+
         @option -v/--verbose
             Print the directories being searched.
-        
+
         @arg name
             The name of the file or directory to search for.
-        
+
         @stdout
             The full path to the file or directory if found.
-        
+
         @return 0
             If the file or directory is found.
-        
+
         @return 1
             If the file or directory is not found.
     '
@@ -1383,4 +1389,835 @@ function prompt-continue() {
             return 1
         fi
     fi
+}
+
+function describe-var() (
+    :  'Return the type and value of a bash variable
+
+        Return the type and value of a bash variable as returned by `declare`.
+        Optionally, can return a more human-readable type and inferred types
+        (e.g.: integers and floats).
+
+        Output is returned in the format "<type>\t<value>".
+
+        @usage
+            [-h/--human] [-i/--infer] [-f/--follow-links]
+            [-t/--type] [-v/--value] [-a/--all] <var>
+
+        @optarg -h/--human
+            Return a human-readable type. Defaults to false.
+
+        @optarg -i/--infer
+            Infer the type of the variable. Implies --human. Defaults to false.
+
+        @optarg -f/--follow-links
+            Follow linked variables. Defaults to false.
+
+        @option -t/--type
+            Only show the variable type.
+
+        @option -v/--value
+            Only show the variable value.
+
+        @option -a/--all
+            Show the variable type and value. This is the default.
+
+        @arg <var>
+            The variable to check.
+
+        @stdout
+            The type of the variable.
+
+        @return 0
+            If the type is determined successfully.
+
+        @return 1
+            If the type is not determined successfully.
+    '
+    # Default values
+    local do_human=false
+    local do_infer=false
+    local do_follow_links=false
+    local show_type=true
+    local show_value=true
+    local var_name var_value
+    local __var_type __var_type_char __var_type_chars=() __var_types=()
+    local regex
+    local opts=() # describe-var options to passthrough if recursing
+    local decl
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -h | --human)
+                do_human=true
+                opts+=("${1}")
+                shift
+                ;;
+            -i | --infer)
+                do_infer=true
+                opts+=("${1}")
+                shift
+                ;;
+            -f | --follow-links)
+                do_follow_links=true
+                opts+=("${1}")
+                shift
+                ;;
+            -t | --type)
+                do_type=true
+                do_value=false
+                opts+=("${1}")
+                shift
+                ;;
+            -v | --value)
+                do_value=true
+                do_type=false
+                opts+=("${1}")
+                shift
+                ;;
+            -a | --all)
+                do_type=true
+                do_value=true
+                opts+=("${1}")
+                shift
+                ;;
+            --)
+                shift
+                var_name="${1}"
+                break
+                ;;
+            *)
+                var_name="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # Get the variable declaration
+    decl=$(declare -p "${var_name}" 2>&1)
+    regex="^declare -([^ ]+) ${var_name}=(.*)"
+    if [[ "${decl}" =~ ${regex} ]]; then
+        __var_type="${BASH_REMATCH[1]}"
+        var_value="${BASH_REMATCH[2]}"
+    elif [[ "${decl}" =~ "declare: ${var_name}: not found"$ ]]; then
+        __var_type="N"
+    else
+        __var_type="U"
+    fi
+
+    # Clean up the value
+    ## Remove leading/trailing double quotes
+    var_value="${var_value#\"}"
+    var_value="${var_value%\"}"
+    ## Convert the trailing ' )' in maps to just ')'
+    if [[ "${__var_type}" == *"A"* && "${var_value}" == *" )" ]]; then
+        var_value="${var_value% )})"
+    fi
+
+    debug "var_name:  ${var_name}"
+    debug "__var_type:  ${__var_type}"
+    debug "var_value: ${var_value}"
+
+    # Check if the variable is linked
+    if [[ "${__var_type}" == *"n"* ]] && ${do_follow_links}; then
+        # Trim the quotes off the value to get the linked variable name
+        if [[ -z "${var_value}" ]]; then
+            echo "error: could not determine linked variable" >&2
+            return 1
+        fi
+        describe-var "${opts[@]}" "${var_value}"
+        return ${?}
+    fi
+
+    # Sort the type chars for consistent output
+    ## read the chars into a sorted array
+    readarray -t __var_type_chars < <(grep -o . <<< "${__var_type}" | sort)
+    ## join the array back into a sorted string
+    __var_type="${__var_type_chars[*]}"
+    __var_type="${__var_type// /}"
+
+    debug "__var_type_chars: ${__var_type_chars[*]}"
+    debug "__var_type:       $(printf %q "${__var_type}")"
+
+    # Determine the human readable / inferred types
+    if ${do_human} || ${do_infer}; then
+        for __var_type_char in "${__var_type_chars[@]}"; do
+            debug "processing __var_type_char: ${__var_type_char}"
+            case "${__var_type_char}" in
+                *a*) __var_types+=("array") ;;
+                *A*) __var_types+=("map") ;;
+                *i*) __var_types+=("integer") ;;
+                *n*) __var_types+=("link") ;;
+                *t*) __var_types+=("trace") ;;
+                *x*) __var_types+=("export") ;;
+                *r*) __var_types+=("readonly"); ;;
+                *l*) __var_types+=("string" "lower") ;;
+                *u*) __var_types+=("string" "upper") ;;
+                *-*) __var_types+=("string")
+                    if ${do_infer}; then
+                        # Try to determine a type based on patterns
+                        if [[ "${var_value}" == "true" || "${var_value}" == "false" ]]; then
+                            __var_types+=("boolean")
+                        elif [[ "${var_value}" =~ ^[0-9]+$ ]]; then
+                            __var_types+=("integer")
+                        elif [[ "${var_value}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                            __var_types+=("float")
+                        fi
+                    fi
+                    ;;
+                *N*) __var_types+=("unset") ;;
+                *)   __var_types+=("unknown") ;;
+            esac
+        done
+    fi
+
+    # Print the type and value
+    if ${do_type}; then
+        if ${do_human}; then
+            (IFS=, ; echo -n "${__var_types[*]}")
+        else
+            echo -n "${__var_type}"
+        fi
+    fi
+    if ${do_type} && ${do_value}; then
+        printf '\t'
+    fi
+    if ${do_value}; then
+        printf '%s' "${var_value}"
+    fi
+    echo
+)
+
+function negate() {
+    :  'Negate "true"<->"false" and "1"<->"-1"
+
+        Negate the value of a boolean or integer. If the value is "true" or "1",
+        then the result will be "false" or "-1". If the value is "false" or "-1",
+        then the result will be "true" or "1".
+
+        @usage
+            <value>
+
+        @arg <value>
+            The value to negate.
+
+        @stdout
+            The negated value.
+
+        @return 0
+            If the value is negated successfully.
+
+        @return 1
+            If the value is not negated successfully.
+    '
+    local value="${1}"
+
+    case "${value}" in
+        true)   echo "false" ;;
+        false)  echo "true" ;;
+        1)      echo "-1" ;;
+        -1)     echo "1" ;;
+        *)
+            echo "error: invalid value: ${value}" >&2
+            return 1
+            ;;
+    esac
+}
+
+function truthy() (
+    :  'Return 0 for truthy values, else 1
+
+        Uses pythonic logic for determining truthiness. The following values are
+        considered falsey:
+            - false
+            - 0
+            - null
+            - empty string
+            - empty array
+            - empty object
+
+        @usage
+            [--varname] [-v/--verbose] <value>
+
+        @option --varname
+            If specified, the value is the name of a variable.
+
+        @option -v/--verbose
+            Output "true" or "false".
+
+        @arg <value>
+            The value to check for truthiness.
+
+        @return 0
+            If the value is truthy.
+
+        @return 1
+            If the value is falsey.
+    '
+    local __is_var=false
+    local __var_description __var_type
+    local value
+    local -i exit_code=0
+    local do_verbose=false
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            --var | --varname)
+                __is_var=true
+                shift
+                ;;
+            -v | --verbose)
+                do_verbose=true
+                shift
+                ;;
+            --)
+                shift
+                value="${1}"
+                break
+                ;;
+            *)
+                value="${1}"
+                shift
+                ;;
+        esac
+    done
+
+    # Check if the value is a variable
+    if ${__is_var}; then
+        # Get the type and value
+        __var_description=$(describe-var --human --all --follow-links "${value}")
+        __var_type="${__var_description%%$'\t'*}"
+        debug-vars __var_type
+        # we intentionally do not use double quotes here since the value comes
+        # from `declare` and will be perfectly escaped
+        eval "value=${__var_description#*$'\t'}"
+    else
+        __var_type="string"
+    fi
+
+    debug-vars __var_description __var_type value
+
+    case "${__var_type}" in
+        *array* | *map*)
+            debug "evaluating as array"
+            [[ ${#value[@]} -eq 0 ]] && exit_code=1 ;;
+        *integer*)
+            debug "evaluating as integer"
+            [[ "${value}" -eq 0 ]] && exit_code=1 ;;
+        *string*)
+            debug "evaluating as string"
+            case "${value}" in
+                false) exit_code=1 ;;
+                0)     exit_code=1 ;;
+                "")    exit_code=1 ;;
+            esac
+            ;;
+        *N*) # Not set
+            debug "evaluating as not set"
+            exit_code=1 ;;
+        *U*) # unset
+            debug "evaluating as unset"
+            exit_code=1 ;;
+        *)
+            echo "warning: unknown type: ${__var_type}" >&2
+            exit_code=1
+            ;;
+    esac
+
+    if ${do_verbose}; then
+        ((exit_code == 0)) && echo "true" || echo "false"
+    fi
+    return ${exit_code}
+)
+
+function check-sudo() (
+    :  'Validate whether a user has sudo access
+
+        Check if the current user has sudo access, optionally only for specific
+        commands (e.g.: if the user has sudo access for `apt-get` but not for
+        `reboot`). If no arguments are supplied, this function will simply check
+        if the user can run `sudo -v`. If arguments are supplied, they will be
+        individually checked with the `sudo [-n] -l <command>`, and if the user
+        does not have access to any of the commands, the function will exit with
+        an error.
+
+        @usage
+            [-v/--verbose] [-q/--quiet] [<command> [<command> ...]]
+
+        @option -v/--verbose
+            Print the commands being checked and the results.
+
+        @option -q/--quiet
+            Suppress all output.
+
+        @arg <command>
+            Check if the user has sudo access for the specified command.
+
+        @return 0
+            If the user has sudo access.
+
+        @return 1
+            If the user does not have sudo access
+        '
+    # Default values
+    local do_quiet=true
+    local commands=()
+    local sudo_cmds=()
+    local cmd_string=""
+    local exit_code=0
+
+    # Parse the values
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -v | --verbose)
+                do_quiet=false
+                shift
+                ;;
+            -q | --quiet)
+                do_quiet=true
+                shift
+                ;;
+            --)
+                shift
+                commands+=("${@}")
+                break
+                ;;
+            *)
+                commands+=("${1}")
+                shift
+                ;;
+        esac
+    done
+
+    # If we should be quiet, then redirect all output to /dev/null and set up
+    # a trap to restore the output when the function exits
+    if ${do_quiet}; then
+        function __restore_output() {
+            exec 1>&9 2>&8 9>&- 8>&-
+        }
+        exec 9>&1 8>&2 1>/dev/null 2>&1
+        trap __restore_output RETURN
+    fi
+
+    # If no commands were supplied, check if the user can run `sudo -v`
+    if [[ ${#commands[@]} -eq 0 ]]; then
+        cmd_str="sudo -n -v"
+        if eval "${cmd_str}" &> /dev/null; then
+            echo "sudo access granted"
+            exit_code=0
+        else
+            echo "sudo access denied"
+            exit_code=1
+        fi
+    else
+        # Check if the user has sudo access for the specified commands
+        for cmd in "${commands[@]}"; do
+            cmd_str="sudo -n -l ${cmd}"
+            echo -n "sudo ${cmd} ... "
+            if eval "${cmd_str}" &> /dev/null; then
+                echo "granted"
+            else
+                echo "denied"
+                exit_code=1
+            fi
+        done
+    fi
+
+    return ${exit_code}
+)
+
+# TODO: *maybe* do something about text running off the screen
+# TODO: when aligning the text, only consider printable characters in the maths
+function printf-at() {
+    :  'Print text at a specific location in the terminal
+
+        Prints text at a specific location in the terminal using ANSI escape
+        sequences and `printf`. The cursor is moved to the specified location
+        before printing the text and then moved back to its original location
+        after the text is printed.
+
+        @usage
+            [-r/--row <num>] [-c/--col <num>]
+            [-l/--left[=<num>]] [-r/--right[=<num>]]
+            [-t/--top[=<num>]] [-b/--bottom[=<num>]]
+            [-L/--align-left | -R/--align-right | -C/--align-center]
+            [-h/--help] [x,y] <format> [arguments...]
+
+        @option -r/--row <num>
+            Move the cursor to row <num> before printing the text.
+
+        @option -c/--col <num>
+            Move the cursor to column <num> before printing the text.
+
+        @option -l/--left[=<num>]
+            Move the cursor <num> columns from the left before printing the
+            text. Defaults to 1.
+
+        @option -r/--right[=<num>]
+            Move the cursor <num> columns from the right before printing the
+            text. Defaults to 1.
+
+        @option -t/--top[=<num>]
+            Move the cursor <num> rows from the top before printing the text.
+            Defaults to 1.
+
+        @option -b/--bottom[=<num>]
+            Move the cursor <num> rows from the bottom before printing the text.
+            Defaults to 1.
+
+        @option -L/--align-left
+            Align the text with the specified location on the left.
+
+        @option -R/--align-right
+            Align the text with the specified location on the right.
+
+        @option -C/--align-center
+            Align the text with the specified location in the center.
+
+        @option -h/--help
+            Print this help message and exit.
+
+        @optarg x,y
+            The row and column to move the cursor to before printing the text.
+            This is equivalent to using `--row x` and `--col y`.
+
+        @arg <format>
+            The text to print with plain characters, escape sequences, and/or
+            format specifiers.
+
+        @arg* arguments
+            The arguments to pass to `printf` for formatting the text.
+    '
+    # Default values
+    local __row __col
+    local __left __right __top __bottom
+    local __do_align_left=false
+    local __do_align_right=false
+    local __do_align_center=false
+    local __format_string __args=() __print_string
+
+    # Parse the options
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -y | --row)
+                __row="${2}"
+                __top=
+                __bottom=
+                shift 2
+                ;;
+            -x | --col)
+                __col="${2}"
+                __left=
+                __right=
+                shift 2
+                ;;
+            -l* | --left | --left=*)
+                [[ "${1}" =~ ^(-l|--left=)(.*)$ ]] \
+                    && __left="${BASH_REMATCH[2]}" \
+                    || __left=0
+                __col=
+                __right=
+                shift 1
+                ;;
+            -r* | --right | --right=*)
+                [[ "${1}" =~ ^(-r|--right=)(.*)$ ]] \
+                    && __right="${BASH_REMATCH[2]}" \
+                    || __right=0
+                __col=
+                __left=
+                shift 1
+                ;;
+            -t* | --top | --top=*)
+                [[ "${1}" =~ ^(-t|--top=)(.*)$ ]] \
+                    && __top="${BASH_REMATCH[2]}" \
+                    || __top=0
+                __row=
+                __bottom=
+                shift 1
+                ;;
+            -b* | --bottom | --bottom=*)
+                [[ "${1}" =~ ^(-b|--bottom=)(.*)$ ]] \
+                    && __bottom="${BASH_REMATCH[2]}" \
+                    || __bottom=0
+                __row=
+                __top=
+                shift 1
+                ;;
+            -L | --align-left)
+                __do_align_left=true
+                __do_align_right=false
+                __do_align_center=false
+                shift 1
+                ;;
+            -R | --align-right)
+                __do_align_right=true
+                __do_align_left=false
+                __do_align_center=false
+                shift 1
+                ;;
+            -C | --align-center)
+                __do_align_center=true
+                __do_align_left=false
+                __do_align_right=false
+                shift 1
+                ;;
+            --)
+                shift 1
+                # Collect any remaining arguments as the format string or args
+                if [[ ${#} -gt 0 ]]; then
+                    if [[ -z "${__format_string}" ]]; then
+                        # If this is the first positional argument, check if it
+                        # is in the 'x,y' format
+                        if [[ "${1}" =~ ^([0-9]+),([0-9]+)$ ]]; then
+                            __row="${BASH_REMATCH[1]}"
+                            __col="${BASH_REMATCH[2]}"
+                        else
+                            __format_string="${1}"
+                        fi
+                    else
+                        __args+=("${@}")
+                    fi
+                fi
+                break
+                ;;
+            *)
+                if [[ -z "${__format_string}" ]]; then
+                    # If this is the first positional argument, check if it
+                    # is in the 'x,y' format
+                    if [[ "${1}" =~ ^([0-9]+),([0-9]+)$ ]]; then
+                        __row="${BASH_REMATCH[1]}"
+                        __col="${BASH_REMATCH[2]}"
+                    else
+                        __format_string="${1}"
+                    fi
+                else
+                    __args+=("${1}")
+                fi
+                shift 1
+                ;;
+        esac
+    done
+
+    # debug-vars \
+    #     __row __col __left __right __top __bottom \
+    #     __do_align_left __do_align_right __do_align_center \
+    #     __format_string __args
+
+    # ---- empty string exit ----
+
+    # If no format string is given, simply exit
+    [[ -z "${__format_string}" ]] && return 0
+
+    # ---- formatting
+
+    # Format the string
+    ## note: we add a 'x' to the end of the string to ensure that we retain
+    ## any (missing) trailing newlines
+    if ! __print_string=$(
+        printf -- "${__format_string}" "${__args[@]}"
+        printf -- x
+    ); then
+        echo "error: invalid format string" >&2
+        return 1
+    else
+        ## note: now we remove the x, and when we do that using this variable
+        ## syntax, it ensures that: 1) if a newline was at the end of the
+        ## string, it stays, or 2) if there was no newline at the end of the
+        ## string, our __print_string variable won't have one either
+        __print_string="${__print_string%x}"
+    fi
+
+    # ---- convert relative positions
+
+    # If any relative positions are given, then calculate the absolute positions
+    if [[ -n "${__left}" ]]; then
+        if [[ "${__left}" =~ ^[0-9]+%$ ]]; then
+            __left=$((COLUMNS * ${__left%?} * 100 / 10000))
+        fi
+        __col="${__left}"
+    elif [[ -n "${__right}" ]]; then
+        if [[ "${__right}" =~ ^[0-9]+%$ ]]; then
+            __right=$((COLUMNS * ${__right%?} * 100 / 10000))
+        fi
+        __col=$((COLUMNS - __right))
+    fi
+    if [[ -n "${__top}" ]]; then
+        if [[ "${__top}" =~ ^[0-9]+%$ ]]; then
+            __top=$((LINES * ${__top%?} * 100 / 10000))
+        fi
+        __row="${__top}"
+    elif [[ -n "${__bottom}" ]]; then
+        if [[ "${__bottom}" =~ ^[0-9]+%$ ]]; then
+            __bottom=$((LINES * ${__bottom%?} * 100 / 10000))
+        fi
+        __row=$((LINES - __bottom))
+    fi
+
+    # ---- no position given, normal print
+
+    # If __col and __row are empty, then print the string as is
+    if [[ -z "${__col}" ]] && [[ -z "${__row}" ]]; then
+        printf '%s' "${__print_string}"
+        return 0
+    fi
+
+    # ---- print at position
+
+    # If only one coordinate is provided, set the other to 0
+    [[ -z "${__col}" ]] && __col=0
+    [[ -z "${__row}" ]] && __row=0
+
+    # If any alignment options are given, then shift the column position from
+    # its current value based on the length of the string
+    if ${__do_align_left}; then
+        :
+    elif ${__do_align_right}; then
+        let __col-=${#__format_string}
+    elif ${__do_align_center}; then
+        let __col-=${#__format_string}/2
+    fi
+
+    # debug-vars __row __col __print_string
+
+    # ---- the magic ----
+    ## save the cursor position
+    tput sc
+    ## move the cursor to the specified position
+    tput cup "${__row}" "${__col}"
+    ## print the string
+    printf '%s' "${__print_string}"
+    ## restore the cursor position
+    tput rc
+}
+
+function env-diff() {
+    :  'Determine the affect on the environment of running a command
+
+        Determine the affect on the environment of running a command by
+        comparing the environment before and after running the command. The
+        command is run in a subshell to prevent changes to the current shell.
+
+        @usage
+            [-d/--declared] [-D/--no-declared] [-v] [--] command [args...]
+
+        @option -d/--declared
+            Include all set variables from `declare -p`.
+
+        @option -D/--no-declared
+            Only compare the output of `env`.
+
+        @option -v
+            Verbose output.
+
+        @arg command
+            The command to run.
+
+        @arg* args
+            The arguments to pass to the command.
+    '
+    local __do_declared=true
+    local __do_verbose=false
+    local __cmd=()
+    local __tmp_dir __tmp_before __tmp_after
+    local __cmd_esc __tmp_before_esc __tmp_after_esc
+
+    # Parse the options
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -d | --declared)
+                __do_declared=true
+                shift 1
+                ;;
+            -D | --no-declared)
+                __do_declared=false
+                shift 1
+                ;;
+            -v)
+                __do_verbose=true
+                shift 1
+                ;;
+            -V)
+                __do_verbose=false
+                shift 1
+                ;;
+            --)
+                shift 1
+                __cmd+=("${@}")
+                break
+                ;;
+            *)
+                __cmd+=("${1}")
+                shift 1
+                ;;
+        esac
+    done
+
+    # Ensure a command was given
+    if [[ ${#__cmd[@]} -eq 0 ]]; then
+        echo "error: no command given" >&2
+        return 1
+    fi
+
+    # Create a temporary directory to store the environment files. We do this
+    # rather than simply storing the environment in variables because to do that
+    # would require running `env` and `declare` in subshells, which might
+    # introduce differences in the environment.
+    __tmp_dir=$(mktemp -d --tmpdir "env-diff.XXXXXXXXXX")
+    __tmp_before="${__tmp_dir}/before"
+    __tmp_after="${__tmp_dir}/after"
+    trap 'rm -rf "${__tmp_dir}" 2>/dev/null' RETURN
+
+    ${__do_verbose} && echo "* set up temporary directory: ${__tmp_dir}"
+
+    # Escape all variables that will be used in the subshell
+    __cmd_esc="${__cmd[0]}"
+    [[ ${#__cmd[@]} -gt 1 ]] && __cmd_esc+=$(printf ' %q' "${__cmd[@]:1}")
+    __tmp_before_esc=$(printf '%q' "${__tmp_before}")
+    __tmp_after_esc=$(printf '%q' "${__tmp_after}")
+
+    ${__do_verbose} && echo "* launching subshell"
+
+    env -i bash --noprofile --norc <<EOF
+        # Get the environment before running the command
+        env > ${__tmp_before_esc}
+        ${__do_declared} && declare -p >> ${__tmp_before_esc}
+        if ${__do_verbose}; then
+            echo "* env before:"
+            env
+            if ${__do_declared}; then
+                echo "* declared before:"
+                declare -p
+            fi
+        fi
+
+        # Run the command
+        ${__do_verbose} && echo "* running command: ${__cmd_esc}"
+        eval "${__cmd_esc}"
+
+        # Get the environment after running the command
+        env > ${__tmp_after_esc}
+        ${__do_declared} && declare -p >> ${__tmp_after_esc}
+        if ${__do_verbose}; then
+            echo "* env after:"
+            env
+            if ${__do_declared}; then
+                echo "* declared after:"
+                declare -p
+            fi
+        fi
+
+        if ${__do_verbose}; then
+            echo "* got before length: \$(wc -c < ${__tmp_before_esc})"
+            echo "* got after length:  \$(wc -c < ${__tmp_after_esc})"
+        fi
+
+        ${__do_verbose} && echo "* diffing the environment ... "
+
+        # Print the differences
+        diff --label env.before --label env.after \
+            --changed-group-format='%<%>' --unchanged-group-format='' \
+            ${__tmp_before_esc} ${__tmp_after_esc}
+EOF
 }

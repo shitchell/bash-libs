@@ -10,9 +10,10 @@ Docstrings will take the following format:
     function foo() {
         :  '[@summary] This is a brief <80 character summary
             [@description] This is a description. The @description tag here is
-            optional; all lines of text from the 2nd line to the first explicit @tag
-            will be parsed as the description. Any leading/trailing whitespace will
-            be trimmed, so a blank line or two before/after *any* value is fine :)
+            optional; all lines of text from the 2nd line to the first explicit
+            @tag will be parsed as the description. Any leading/trailing
+            whitespace will be trimmed, so a blank line or two before/after
+            *any* value is fine :)
 
             @usage
                 [-h/--help] [-f/--foo <value>] <arg1> <arg2> [<arg3>]
