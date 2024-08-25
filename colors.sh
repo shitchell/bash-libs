@@ -13,6 +13,60 @@ options are:
   functions)
 
 The default is `--auto`.
+
+# ANSI Color Code Reference
+
+All color codes follow the format `\033[{code(s)}m`, where `{code(s)}` is a
+single code or a semicolon-separated list of codes. For example:
+- `\033[31m`: Red text
+- `\033[31;1m`: Bold red text
+- `\033[31;1;4m`: Bold red underlined text
+
+## Style Codes
+- 0: S_RESET: Reset all styles
+- 1: S_BOLD: Bold
+- 2: S_DIM: Dim
+- 3: S_ITALIC: Italic (not widely supported)
+- 4: S_UNDERLINE: Underline
+- 5: S_BLINK: Blink (slow)
+- 6: S_BLINK_FAST: Blink (fast)
+- 7: S_REVERSE: Reverse
+- 8: S_HIDDEN: Hidden (not widely supported)
+- 9: S_STRIKETHROUGH: Strikethrough (not widely supported)
+- 10: S_DEFAULT: Default font
+
+## Foreground Color Codes
+- 30-37: Standard colors
+- 38: RGB color
+    - followed by `;2;R;G;B`, e.g. `\033[38;2;255;0;0m` for red
+    - followed by `;5;N` (0 <= N <= 255), e.g. `\033[38;5;196m` for red
+        - This library generates C_(001-255) variables for these colors
+- 39: Default foreground color
+
+## Background Color Codes
+- 40-47: Standard colors
+- 48: RGB color
+    - followed by `;2;R;G;B`, e.g. `\033[48;2;255;0;0m` for red
+    - followed by `;5;N` (0 <= N <= 255), e.g. `\033[48;5;196m` for red
+        - This library generates C_(001-255)_BG variables for these colors
+- 49: Default background color
+
+## Standard Colors
+- 30: C_BLACK: Black
+- 31: C_RED: Red
+- 32: C_GREEN: Green
+- 33: C_YELLOW: Yellow
+- 34: C_BLUE: Blue
+- 35: C_MAGENTA: Magenta
+- 36: C_CYAN: Cyan
+- 37: C_WHITE: White
+
+## RGB Colors
+- 38;2;R;G;B: Foreground color
+    - e.g. `\033[38;2;255;0;0m`: Red
+- 48;2;R;G;B: Background color
+    - e.g. `\033[48;2;255;0;0m`: Red
+
 '
 
 # Determine if FD 1 (stdout) is a terminal (used for auto-loading)
@@ -50,15 +104,32 @@ function setup-colors() {
     export S_HIDDEN=$'\033[8m'  # not widely supported
     export S_STRIKETHROUGH=$'\033[9m'  # not widely supported
     export S_DEFAULT=$'\033[10m'
+
+    # Loop to set up `C_(001-255)` and `C_(001-255)_BG` variables
+    for i in {0..255}; do
+        local varname="00${i}"
+        varname="C_${varname: -3}"
+        export ${varname}=$'\033'"[38;5;${i}m"
+        export ${varname}_BG=$'\033'"[48;5;${i}m"
+    done
 }
 
 function unset-colors() {
-    unset \
-        C_BLACK C_RED C_GREEN C_YELLOW C_BLUE C_MAGENTA C_CYAN C_WHITE \
-        C_RGB C_DEFAULT_FG C_BLACK_BG C_RED_BG C_GREEN_BG C_YELLOW_BG \
-        C_BLUE_BG C_MAGENTA_BG C_CYAN_BG C_WHITE_BG C_RGB_BG C_DEFAULT_BG \
-        S_RESET S_BOLD S_DIM S_ITALIC S_UNDERLINE S_BLINK S_BLINK_FAST \
+    local color_vars=(
+        C_BLACK C_RED C_GREEN C_YELLOW C_BLUE C_MAGENTA C_CYAN C_WHITE
+        C_RGB C_DEFAULT_FG C_BLACK_BG C_RED_BG C_GREEN_BG C_YELLOW_BG
+        C_BLUE_BG C_MAGENTA_BG C_CYAN_BG C_WHITE_BG C_RGB_BG C_DEFAULT_BG
+        S_RESET S_BOLD S_DIM S_ITALIC S_UNDERLINE S_BLINK S_BLINK_FAST
         S_REVERSE S_HIDDEN S_STRIKETHROUGH S_DEFAULT
+    )
+
+    for i in {0..255}; do
+        local varname="00${i}"
+        varname="C_${varname: -3}"
+        color_vars+=(${varname} ${varname}_BG)
+    done
+
+    unset ${color_vars[@]}
 }
 
 
