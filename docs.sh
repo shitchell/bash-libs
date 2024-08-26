@@ -68,7 +68,7 @@ Docstrings can use either single or double quotes.
 # Standard labels
 
 You can use create any tags you like, but a few specific tags are used by this
-library when generating documentation: 
+library when generating documentation:
 
 - @description: A description of the function. Any text from the 2nd line (the
   line after the colon) until the first line with an explicit @label will be
@@ -112,7 +112,7 @@ label as appropriate.
 
 ## General
 
-The parser will use the following pattern when extracting labels and their 
+The parser will use the following pattern when extracting labels and their
 values: /^\s*@([-A-Za-z0-9]+)\s+(.*)/, where the first capture group is the
 label and the second is its value. This basically translates to:
 
@@ -215,7 +215,7 @@ function generate-function-docstring() {
     : '
     Generate help documentation for a function based on a docstring defined as
     the first line under its signature.
-    
+
     @usage      <function_name>
     @return     0 if the function was successfully documented
     @return     1 general error
@@ -232,10 +232,10 @@ function generate-function-docstring() {
 
     # Get the function signature and body
     f_body=$(declare -f "${f_name}") || return 3
-    
+
     # Extract the docstring
     f_docstring=$(__extract_docstring "${f_body}") || return ${?}
-    
+
     # Parse
     eval "$(__parse_docstring "${f_docstring}")" || return ${?}
 
@@ -268,7 +268,7 @@ function generate-function-docstring() {
 function __uses_subshell() {
     : '
     Determine if a function body uses a subshell, e.g.:
-    
+
         function test-func() (
             echo "this is a subshell"
         )
@@ -529,7 +529,7 @@ function __extract_docstring() {
 function __parse_docstring() {
     : '
     Parse a docstring into an associate array of labels and values.
-    
+
     The @description is optional. All lines until the first line matching
     /^\s*@/ are considered part of the description. The @usage and @return
     docstring are required and must be on their own lines. Any other lines

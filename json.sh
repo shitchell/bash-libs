@@ -10,7 +10,7 @@ function json-escape() {
 
         @arg -q/--quotes
             Wrap the escaped string in double quotes
-        
+
         @arg -Q/--no-quotes
             Do not wrap the escaped string in double quotes
 
@@ -49,7 +49,7 @@ function json-escape() {
 
     [[ -z "${text}" ]] && text=$(cat -)
     [[ -z "${text}" ]] && return
-    
+
     awk -v do_quotes="${do_quotes}" '
         BEGIN {
             for ( i = 1; i <= 127; i++ ) {
@@ -115,7 +115,7 @@ function json-parse() {
     if [ -z "${str}" ]; then
         str=$(cat)
     fi
-    
+
     echo "${str}" \
         | awk '{
             gsub(/\\n/, "\n")
@@ -210,7 +210,7 @@ function json-map-from-keys() {
         local key="${key_value_pair%%=*}"
         local value="${key_value_pair#*=}"
         debug "key_value_pair: ${key} = ${value}"
-        
+
         # Detect type if requested
         if ${detect_types}; then
             local json_type="$(json-type "${value}")"

@@ -18,7 +18,7 @@ function find-all-resolves() {
             resolves_lines+=( "${line}" )
         fi
     done <<< "${commit_msg}"
-    
+
     # Loop over each resolves line and add its resolved issues to the array
     for line in "${resolves_lines[@]}"; do
         debug "validating line: ${line}"
@@ -39,7 +39,7 @@ function find-all-resolves() {
             echo "warning: invalid resolve: '${line}'" >&2
         fi
     done
-    
+
     # Print all of the resolved issues sorted and uniq'd
     printf "%s\n" "${resolved_issues[@]}" | sort -u
 }

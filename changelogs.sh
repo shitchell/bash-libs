@@ -462,7 +462,7 @@ function read-changelog() {
         fi
     fi
     declare -gn array="${array_name}"
-    
+
     [[ "${filepath}" == "-" ]] && filepath="/dev/stdin"
 
     if [[ -z "${filepath}" ]]; then

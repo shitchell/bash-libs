@@ -15,7 +15,7 @@
 #    key3 =( value3.1 "other value 3.2" )
 #    key4 = (
 #      value4.1
-#      other value 4.2   
+#      other value 4.2
 #    )
 #    key6 = true
 #    key7 = 3.14

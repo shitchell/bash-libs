@@ -26,7 +26,7 @@
 # - `--header <header>`: A header to display above the menu
 # - `--footer <footer>`: A footer to display below the menu
 # - `--show-help-keybinding`: Show the help keybinding in the footer
-# - `--show-help-text`: Show the help text in the footer 
+# - `--show-help-text`: Show the help text in the footer
 # - `--style <ansi>`: The default style to use for all menu items
 # - `--style-text <ansi>`: The default style to use for all menu text
 # - `--style-header <ansi>`: The style to use for the header

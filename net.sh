@@ -21,7 +21,7 @@ function generate-basic-auth() {
     '
     local user="${1}"
     local password="${2}"
-    
+
     printf '%s' "${user}:${password}" | base64
 }
 

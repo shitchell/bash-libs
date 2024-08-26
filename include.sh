@@ -184,16 +184,16 @@ function functionname() {
 
         @usage
             [<stack index>]
-    
+
         @optarg <stack index>
             The index of the function in the call stack to return
 
         @stdout
             The name of the calling function
-        
+
         @return 0
             If the function name was successfully returned
-        
+
         @return 108
             If the shell is not recognized
     '
@@ -221,7 +221,7 @@ function in-array() {
 
         @arg <item>
             The item to check for in the array
-        
+
         @arg+
             The array to check
 

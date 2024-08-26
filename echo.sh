@@ -20,13 +20,13 @@ function echo-formatted() {
 
         @option -n
             Do not echo a newline
-        
+
         @option -V <level>
             Only echo if the global VERBOSITY is >= <level>
-        
+
         @option -g
             Green foreground
-        
+
         @option -r
             Red foreground
 
@@ -59,10 +59,10 @@ function echo-formatted() {
 
         @option --
             Reset to default color
-        
+
         @arg <text>
             The text to echo
-        
+
         @stdout
             The formatted text
     '
@@ -433,7 +433,7 @@ function check-command() {
     debug-vars \
         command description prefix success_message error_message attempts \
         stdout_var stderr_var combine_output
-    
+
     # If the command is empty, return an error
     if [[ -z "${command}" ]]; then
         echo "error: no command provided" >&2

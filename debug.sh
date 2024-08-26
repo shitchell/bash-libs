@@ -81,13 +81,13 @@ function debug() (
             DEBUG=1   debug error "foo bar"   # will print in red
             DEBUG=1   debug 2 error "foo bar" # will not print
             DEBUG=2   debug 2 error "foo bar" # will print in red
-        
+
         @stderr
             A timestamped debug message.
 
         @return 0
             Debugging is enabled
-        
+
         @return 1
             Debugging is not enabled
         '
@@ -370,7 +370,7 @@ function debug-vars() {
 
         @arg+
             The names of the variables to print
-        
+
         @example
             foo=bar bar=baz debug-vars "foo" "bar"
 

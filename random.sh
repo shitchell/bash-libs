@@ -3,14 +3,14 @@
 # @attribution https://unix.stackexchange.com/a/157837/538359
 function generate-random-bits() {
 	local n=${1} rnd=${RANDOM} rnd_bitlen=15
-	
+
 	# Verify n is an integer
 	if ! [[ "${n}" =~ ^[0-9]+ ]]; then
 		echo "error: arg must be an integer" >&2
 		return 1
 	fi
 
-	# Add more $RANDOM bits to rnd until 
+	# Add more $RANDOM bits to rnd until
  	while (( rnd_bitlen < n )); do
 		rnd=$(( rnd<<15|RANDOM ))
 		let rnd_bitlen+=15
@@ -28,7 +28,7 @@ function random-int() {
     local max=100
     local range
     local num
-    
+
     # If 1 arg is given, set it to the max
     if [[ ${#} -eq 1 ]]; then
         max="${1}"

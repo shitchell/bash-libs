@@ -2,22 +2,22 @@
 
 function get-access-token() {
     :  'Request an access token from Bitbucket
-        
+
         Using a client_id, client_secret, and an authorization code grant,
         request an access token from Bitbucket.
 
         @usage
             <client_id> <client_secret> <authorization_code>
-        
+
         @arg client_id
             The client_id to use for the request
-        
+
         @arg client_secret
             The client_secret to use for the request
-        
+
         @arg authorization_code
             The authorization code to use for the request
-        
+
         @stdout
             The full response from Bitbucket
     '

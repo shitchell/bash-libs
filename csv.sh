@@ -224,7 +224,7 @@ function csv-split {
             __field=""
             continue
         fi
-        
+
         __field+="${__char}"
 
         # Handle the last field

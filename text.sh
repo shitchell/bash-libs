@@ -204,7 +204,7 @@ function to-random-case() {
     # local strlen=${#string}
     # local encoded=""
     # local pos c o
-# 
+#
     # for ((pos=0; pos<strlen; pos++)); do
         # c=${string:$pos:1}
         # case "$c" in
@@ -215,7 +215,7 @@ function to-random-case() {
                 # printf -v o '%%%02x' "'$c"
                 # ;;
         # esac
-# 
+#
         # encoded+="${o}"
     # done
     # printf "%s\n" "${encoded}"
