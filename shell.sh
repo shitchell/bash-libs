@@ -2264,10 +2264,10 @@ function get-user() {
 
     # Get the user
     if ${__do_base}; then
-        __user=$(who am i)
-        __user=${__user%% *}
+        __user=$(who are we)
+        __user="${__user%% *}"
     else
-        __user=${USER}
+        __user="${USER:-${LOGNAME:-${USERNAME:-$(id -un)}}}"
     fi
 
     # Print the user
