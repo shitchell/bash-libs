@@ -2222,3 +2222,56 @@ function env-diff() {
             ${__tmp_before_esc} ${__tmp_after_esc}
 EOF
 }
+
+function get-user() {
+    :  'Get the current user, optionally at a base level
+
+        Get the current user, optionally at a base level. That is, if a user has
+        logged in (User A), then logged into another account (User B), then used
+        the `sudo` command (root), return User A.
+
+        @usage
+            [-b/--base]
+
+        @option -b/--base
+            Get the user at the base level.
+
+        @stdout
+            The current user.
+
+        @return 0
+            If the user is determined successfully.
+
+        @return 1
+            If the user is not determined successfully.
+    '
+    local __do_base=false
+    local __user
+
+    # Parse the options
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -b | --base)
+                __do_base=true
+                shift 1
+                ;;
+            *)
+                echo "error: unknown option: ${1}" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    # Get the user
+    if ${__do_base}; then
+        __user=$(who am i)
+        __user=${__user%% *}
+    else
+        __user=${USER}
+    fi
+
+    # Print the user
+    echo "${__user}"
+
+    return 0
+}
