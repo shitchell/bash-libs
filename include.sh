@@ -127,6 +127,16 @@ $ compile-sources -i -T "./foo.sh" "./bar.sh"
   - Use regex to import only functions from the included script
     - Allow for modifying imported function names with a prefix/suffix
 '
+### NOTE: INCLUDE_LIBS Removal
+#   Previously, we attempted to track the included libraries in a global
+#   INCLUDE_LIBS associative array. We found that bash does *not* support
+#   exporting associative arrays, so we've removed this feature for now, leaving
+#   the code commented out in place for future reference. If we decide to
+#   re-implement this feature, we'll need to do so using `declare -p` to
+#   serialize the associative array to a string, then `eval` to deserialize it
+#   again. This has implications for both performance and security, so it will
+#   require careful consideration if we decide to go this route.
+
 
 ## helpful functions ###########################################################
 ################################################################################
@@ -150,6 +160,8 @@ function __debug() {
             The message to print
     '
     local prefix timestamp
+    # TODO: remove this declare statement
+    # declare -p FUNCNAME BASH_LINENO BASH_SOURCE >&2
     if [[
             "${INCLUDE_DEBUG}" == "1"
             || "${INCLUDE_DEBUG}" == "true"
@@ -168,7 +180,7 @@ function __debug() {
     fi
 }
 
-function get-shell() {
+function __get_shell() {
     :  'Reliably determine the current shell
 
         @stdout
@@ -179,7 +191,7 @@ function get-shell() {
     echo "${shell}"
 }
 
-function functionname() {
+function __functionname() {
     :  'Cross-shell function for returning the calling function name
 
         @usage
@@ -197,7 +209,7 @@ function functionname() {
         @return 108
             If the shell is not recognized
     '
-    local shell=$(get-shell)
+    local shell=$(__get_shell)
     local index=${1:- -1}
     case "${shell}" in
         bash)
@@ -213,7 +225,7 @@ function functionname() {
     esac
 }
 
-function in-array() {
+function __in_array() {
     :  'Checks if an item is in an array.
 
         @usage
@@ -254,7 +266,7 @@ function in-array() {
 ###
 
 function __include_source_help_usage() {
-    echo "usage: $(functionname) [-hlnNcCvV] <path>"
+    echo "usage: $(__functionname) [-hlnNcCvV] <path>"
 }
 
 function __include_source_help_epilogue() {
@@ -336,7 +348,7 @@ function __include_source_parse_args() {
                 return 3
                 ;;
             -*)
-                echo "$(functionname): invalid option '${arg}'" >&2
+                echo "$(__functionname): invalid option '${arg}'" >&2
                 return 1
                 ;;
             *)
@@ -364,7 +376,7 @@ function __bash_libs_get_path() {
     local path shell_lower shell_upper lib_path lib_path_value
 
     # reliably determine the shell
-    local shell_lower=$(get-shell)
+    local shell_lower=$(__get_shell)
     local shell_upper=$(echo "${shell_lower}" | tr '[:lower:]' '[:upper:]')
 
     # determine the current shell's lib path
@@ -384,7 +396,7 @@ function __bash_libs_get_path() {
         # the module will work even if this does
         eval local lib_path_value="\$${lib_path_name}"
         if [ $? -ne 0 ]; then
-            echo "$(functionname): failed to determine the value of '${lib_path_name}'" >&2
+            echo "$(__functionname): failed to determine the value of '${lib_path_name}'" >&2
             return 1
         fi
     fi
@@ -417,10 +429,8 @@ function __bash_libs_get_filepath() {
     # look for the file in the current directory with and without the .sh
     # extension
     if [[ -f "$(pwd)/${filename}" && -r "$(pwd)/${filename}" ]]; then
-        echo "$(pwd)/${filename}"
         return 0
     elif [[ -f "$(pwd)/${filename}.sh" && -r "$(pwd)/${filename}.sh" ]]; then
-        echo "$(pwd)/${filename}.sh"
         return 0
     fi
 
@@ -494,11 +504,11 @@ function source-url() {
         echo "${url}"
         return 0
     elif [ "${VERBOSE}" -eq 1 ] 2>/dev/null; then
-        echo "$(functionname): sourcing '${filename}'"
+        echo "$(__functionname): sourcing '${filename}'"
     fi
 
     # download the script
-    local tmp_dir=$(mktemp -dt "`functionname`.XXXXX")
+    local tmp_dir=$(mktemp -dt "$(__functionname).XXXXX")
     local script_file="${tmp_dir}/${filename}"
 
     # ensure the temporary directory is removed on function return
@@ -506,7 +516,7 @@ function source-url() {
 
     curl -s -o "${script_file}" "${url}"
     if [ $? -ne 0 ] && [ "${VERBOSE}" -eq 1 ]; then
-        echo "$(functionname): failed to download '${filename}'" >&2
+        echo "$(__functionname): failed to download '${filename}'" >&2
         return 1
     fi
 
@@ -519,8 +529,9 @@ function source-url() {
     if [ "${DO_SOURCE}" -eq 1 ]; then
         source "${script_file}" "${source_args[@]}"
         __exit_code=${?}
+        ### NOTE: INCLUDE_LIBS Removal
         # If successful, add the URL to the list of included libs
-        INCLUDE_LIBS["${filename}"]="${url}"
+        #INCLUDE_LIBS["${filename}"]="${url}"
     fi
 
     # return the exit code of the sourced script if available
@@ -545,9 +556,11 @@ function source-lib() {
     # get the path to the file
     local filepath=$(__bash_libs_get_filepath "${filename}")
 
+    #__debug "sourcing filepath: ${filepath}"
+
     # if we couldn't find the file, exit with an error
     if [ -z "${filepath}" ]; then
-        echo "$(functionname): failed to find '${filename}'" >&2
+        echo "$(__functionname): failed to find '${filename}'" >&2
         return 1
     fi
 
@@ -560,18 +573,31 @@ function source-lib() {
     # print the contents of the script if requested
     if [ "${DO_CAT}" -eq 1 ]; then
         cat "${filepath}"
+        __exit_code=${?}
     fi
 
     # source the file
     if [ "${DO_SOURCE:-1}" -eq 1 ]; then
         if [ "${VERBOSE:-0}" -eq 1 ]; then
-            echo "$(functionname): sourcing '${filepath}'"
+            echo "$(__functionname): sourcing '${filepath}'"
         fi
+        #__debug "sourcing 'source ${filepath} ${source_args[@]}'"
         source "${filepath}" "${source_args[@]}"
         __exit_code=${?}
+        #__debug "finished sourcing '${filepath}'"
         # If successful, add the file to the list of included libs
-        INCLUDE_LIBS["${filename}"]="${filepath}"
+        if ((__exit_code == 0)); then
+            :
+            #__debug "successfully sourced '${filename}'"
+            ### NOTE: INCLUDE_LIBS Removal
+            #INCLUDE_LIBS["${filename}"]="${filepath}"
+        else
+            :
+            #__debug "failed to source '${filename}'"
+        fi
     fi
+
+    return ${__exit_code}
 }
 
 # Import a shell script from ${<SHELL>_LIB_PATH:-${PATH}} given a filename
@@ -608,6 +634,8 @@ function include-source() {
             #__debug "sourcing lib: ${SOURCE_PATH}"
             source-lib "${SOURCE_PATH}" "${SOURCE_ARGS[@]}"
             __exit_code=${?}
+            #__debug "why are we not reaching this line? ;-;"
+            #__debug "source ${SOURCE_PATH} exit code: ${__exit_code}"
         fi
     fi
 
@@ -626,7 +654,7 @@ function import() { include-source "${@}"; }
 ###
 
 function __compile_sources_help_usage() {
-    echo "usage: $(functionname) [-hiItT] <file> [<file> ...]"
+    echo "usage: $(__functionname) [-hiItT] <file> [<file> ...]"
 }
 
 function __compile_sources_help_epilogue() {
@@ -698,7 +726,7 @@ function __compile_sources_parse_args() {
                 return 3
                 ;;
             -*)
-                echo "$(functionname): invalid option '$arg'" >&2
+                echo "$(__functionname): invalid option '$arg'" >&2
                 return 1
                 ;;
             *)
@@ -799,7 +827,7 @@ function __compile_sources() {
         local sourced_filename=$(echo "${include_source_line}" | cut -d ':' -f2)
 
         # check whether the source has already been included
-        if in-array "${sourced_filename}" "${included_sources[@]}"; then
+        if __in_array "${sourced_filename}" "${included_sources[@]}"; then
             # if it has, remove the "include-source" line from the file
             local file_contents=$(echo "${file_contents}" | sed -e "${line_number}d")
             continue
@@ -823,7 +851,7 @@ function __compile_sources() {
 
         # if the source file is empty, then exit with an error
         if [ -z "${sourced_contents}" ]; then
-            echo "$(functionname): source file '${sourced_filename}' is empty" >&2
+            echo "$(__functionname): source file '${sourced_filename}' is empty" >&2
             return 1
         else
             # check to see if the source file contains any "include-source" lines
@@ -841,7 +869,7 @@ function __compile_sources() {
         # if we successfully loaded some content and include_tags is set,
         # then add a line to the end of the source indicating where it ends
         if [ "${INCLUDE_TAGS:-1}" -eq 1 ]; then
-            local sourced_contents="${sourced_contents}"$'\n'"# $(functionname): end of '${sourced_filename}'"
+            local sourced_contents="${sourced_contents}"$'\n'"# $(__functionname): end of '${sourced_filename}'"
         fi
 
         # if include_tags is set, comment out the include-source line and
@@ -946,7 +974,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
             __lib_dir="."
         fi
         export LIB_DIR="$(realpath "${__lib_dir}")"
-        __debug "set LIB_DIR=${LIB_DIR}" >&2
+        #__debug "set LIB_DIR=${LIB_DIR}" >&2
         unset __include_path __lib_dir
     fi
 
@@ -954,9 +982,9 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     ############################################################################
 
     export -f __debug
-    export -f get-shell
-    export -f functionname
-    export -f in-array
+    export -f __get_shell
+    export -f __functionname
+    export -f __in_array
     export -f __include_source_help_usage
     export -f __include_source_help_epilogue
     export -f __include_source_help_full
@@ -982,5 +1010,6 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
 
     export INCLUDE_SOURCE="include-source"
     export INCLUDE_FILE=$(realpath "${BASH_SOURCE[0]}")
-    declare -Ax INCLUDE_LIBS=( ["${INCLUDE_FILE##*/}"]="${INCLUDE_FILE}" )
+    ### NOTE: INCLUDE_LIBS Removal
+    #declare -Ax INCLUDE_LIBS=( ["${INCLUDE_FILE##*/}"]="${INCLUDE_FILE}" )
 fi
