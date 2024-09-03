@@ -224,12 +224,36 @@ function to-random-case() {
 # }
 
 # @description Format a string to be URL encoded
-# @usage urlencode <string>
+# @usage urlencode [-U/--upper | -L/--lower] <string>
 # @usage echo <string> | urlencode -
 function urlencode() {
-    local string="${1}"
+    # Default values
+    local string
     local LANG=C
     local IFS=
+    local mode=""  # upper, lower, empty
+
+    # Parse the arguments
+    while [[ ${#} -gt 0 ]]; do
+        case "${1}" in
+            -U | --upper)
+                mode="upper"
+                shift 1
+                ;;
+            -L | --lower)
+                mode="lower"
+                shift 1
+                ;;
+            -*)
+                echo "error: unknown option: ${1}" >&2
+                return ${E_INVALID_OPTION:-1}
+                ;;
+            *)
+                string="${1}"
+                shift 1
+                ;;
+        esac
+    done
 
     if [[ "${string}" == "-" ]]; then
         string="$(cat && echo x)"
