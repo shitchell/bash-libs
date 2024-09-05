@@ -716,3 +716,70 @@ function asrun-script() (
 function assetsuite() {
     asrun-script "./assetsuite ${@}"
 }
+
+# @description Ensure each NxA project directory has an rdcs directory
+# @usage fix-missing-rdcs
+function fix-missing-rdcs() {
+    local nxa_dir="${AS_SHARED:-/as_shared}/nxa"
+    local accounts_dir="${nxa_dir}/SREData/MetaDataMgr/FileMgr/accounts"
+    local ownership permissions account_dir rdcs_dir cmd=() actual=""
+    local output
+    local -i exit_code=0
+
+    # Loop over every account directory under nxa/.../accounts/ and ensure each
+    # has an rdcs directory, even if empty
+    shopt -s nullglob
+    for account_dir in "${accounts_dir}"/*; do
+        # Ensure the `account_dir` is a directory
+        ! [[ -d "${account_dir}" ]] && continue
+
+        # Check if the account directory has an rdcs directory
+        rdcs_dir="${account_dir}/rdcs"
+        if ! [[ -d "${rdcs_dir}" ]]; then
+            debug "creating rdcs directory: ${rdcs_dir}"
+
+            # Use the same owner, group, and permissions as the account dir
+            ownership=$(stat -c "%U:%G" "${account_dir}")
+            permissions=$(stat -c "%a" "${account_dir}")
+            cmd=(mkdir -p --mode="${permissions}" "${rdcs_dir}")
+            output=$( "${cmd[@]}" 2>&1 )
+
+            # Ensure the rdcs directory was created
+            if ! [[ -d "${rdcs_dir}" ]]; then
+                # Try creating it using sudo
+                if ${HAS_SUDO:-true}; then
+                    output=$( sudo "${cmd[@]}" 2>&1 )
+                fi
+
+                if ! [[ -d "${rdcs_dir}" ]]; then
+                    echo "error: could not create rdcs: ${rdcs_dir}" >&2
+                    echo "${output}" | sed 's/^/       /' >&2
+                    exit_code+=1
+                    continue
+                fi
+            fi
+
+            # Set the ownership of the rdcs directory
+            cmd=(chown "${ownership}" "${rdcs_dir}")
+            output=$( "${cmd[@]}" 2>&1 )
+            actual=$(stat -c "%U:%G" "${rdcs_dir}")
+
+            if [[ "${actual}" != "${ownership}" ]]; then
+                # Try setting the ownership using sudo
+                if ${HAS_SUDO:-true}; then
+                    output=$( sudo "${cmd[@]}" 2>&1 )
+                    actual=$(sudo stat -c "%U:%G" "${rdcs_dir}")
+                fi
+
+                if [[ "${actual}" != "${ownership}" ]]; then
+                    echo "error: could not set ownership: ${rdcs_dir}" >&2
+                    echo "${output}" | sed 's/^/       /' >&2
+                    exit_code+=1
+                    continue
+                fi
+            fi
+        fi
+    done
+
+    return ${exit_code}
+}
