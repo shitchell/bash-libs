@@ -20,6 +20,7 @@ function az-setvariable() {
     local name=""
     local value=""
     local is_output=false
+    local is_secret=false
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -36,6 +37,10 @@ function az-setvariable() {
                 is_output=true
                 shift 1
                 ;;
+            --secret)
+                is_secret=true
+                shift 1
+                ;;
             *)
                 if [[ -z "${name}" ]]; then
                     name="${1}"
@@ -49,7 +54,7 @@ function az-setvariable() {
         esac
     done
 
-    echo "##vso[task.setvariable variable=${name};isOutput=${is_output}]${value}"
+    echo "##vso[task.setvariable variable=${name};isOutput=${is_output};isSecret=${is_secret}]${value}"
 }
 
 function _get_all_files() {
