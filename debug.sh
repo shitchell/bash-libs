@@ -117,6 +117,7 @@ function debug() (
         fi
         debug_file="${DEBUG_LOG}"
         # Point file descriptor 3 to the debug file
+        touch "${debug_file}"
         exec 3>>"${debug_file}"
     else
         # Point file descriptor 3 to stderr
