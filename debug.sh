@@ -117,7 +117,7 @@ function debug() (
         fi
         debug_file="${DEBUG_LOG}"
         # Point file descriptor 3 to the debug file
-        touch "${debug_file}"
+        _ensure_file_exists "${debug_file}"
         exec 3>>"${debug_file}"
     else
         # Point file descriptor 3 to stderr
@@ -633,4 +633,33 @@ function run-verbose() {
     set -x
     "${@}"
     set +x
+}
+
+# Ensure a file exists, creating it and its parent directories if necessary
+function _ensure_file_exists() {
+    local file_path="${1}"
+    local file_dir
+
+    if [[ -z "${file_path}" ]]; then
+        echo "fatal: no file path provided" >&2
+        return 1
+    fi
+
+    if ! [[ -f "${file_path}" ]]; then
+        file_dir=$(dirname "${file_path}")
+        if ! [[ -d "${file_dir}" ]]; then
+            # Ensure the parent directories exist
+            if ! output=$(mkdir -p "${file_dir}" 2>&1); then
+                echo "fatal: failed to create directory: ${file_dir}" >&2
+                echo "${output}" >&2
+                return 1
+            fi
+        fi
+
+        if ! output=$(touch "${file_path}" 2>&1); then
+            echo "fatal: failed to create file: ${file_path}" >&2
+            echo "${output}" >&2
+            return 1
+        fi
+    fi
 }
