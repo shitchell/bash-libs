@@ -2275,3 +2275,35 @@ function get-user() {
 
     return 0
 }
+
+function usage() {
+    :  'Print usage information with a basename, wrapped at 80 columns'
+    # Default values
+    local -- source="${BASH_SOURCE[1]}"
+    local -- prefix="usage: $(basename "${source}")"
+    local -- options=()
+    local -- line="" _line=""
+
+    # If we're debugging in a shell, set the prefix
+    if [[ -z "${source}" ]]; then
+        prefix="usage: bash"
+    fi
+
+    line="${prefix}"
+    for option in "${options[@]}"; do
+        # Add the option to the temp line with a space if it's not the first
+        _line="${line:+${line} }${option}"
+        # If the line is too long, print it and reset the line
+        if (( ${#_line} > 80 )); then
+            echo "${line}"
+            line=""
+            for ((i=0; i<${#prefix}; i++)); do line+=" "; done
+            line+=" ${option}"
+        else
+            line="${_line}"
+        fi
+    done
+
+    # Print the last line if it's not empty
+    [[ -n "${line}" ]] && echo "${line}"
+}
