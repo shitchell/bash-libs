@@ -750,3 +750,8 @@ function print-header() {
     ## Margin after the header
     for ((i=0; i<lines_after; i++)); do echo; done
 }
+
+function echo-vars() {
+    :  'Runs debug-vars always, regardless of the DEBUG environment variable'
+    DEBUG=true debug-vars "${@}"
+}
