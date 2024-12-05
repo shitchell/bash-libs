@@ -116,8 +116,9 @@ function debug() (
             DEBUG=1
         fi
         debug_file="${DEBUG_LOG}"
-        # Point file descriptor 3 to the debug file
+        # Ensure debug_file exists, else creating its file descriptor will fail
         _ensure_file_exists "${debug_file}"
+        # Point file descriptor 3 to the debug file
         exec 3>>"${debug_file}"
     else
         # Point file descriptor 3 to stderr
