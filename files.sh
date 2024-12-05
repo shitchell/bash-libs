@@ -197,3 +197,117 @@ function is-java-class() {
         return 1
     fi
 }
+
+# @description Try to extract a file's shebang
+# @param filepath The file to check
+# @stdout The shebang, if found
+# @return 0 The shebang was found
+# @return 1 No shebang was found
+function get-shebang() {
+    local filepath="${1}"
+    local header
+
+    # To avoid reading a million bytes from a binary file without a newline,
+    # read only the first 150 chars and then truncate at the first newline
+    header=$(head -c 150 "${filepath}" | head -1)
+
+    if [[ "${header}" == "#!"* ]]; then
+        echo "${header}"
+        return 0
+    fi
+
+    return 1
+}
+
+# @description Try to extract the interpreter from a file's shebang
+# @param filepath The file to check
+# @stdout The interpreter, if found
+# @return 0 The interpreter was found
+# @return 1 No interpreter was found
+function get-shebang-interpreter() {
+    local filepath="${1}"
+    local shebang
+    local shebang_regex='^#![^ ]*(/env |/)([^ ]+)( .*)?$'
+    local header
+
+    if ! shebang=$(get-shebang "${filepath}"); then
+        return 1
+    fi
+
+    if [[ "${shebang}" =~ ${shebang_regex} ]]; then
+        echo "${BASH_REMATCH[2]}"
+        return 0
+    fi
+
+    return 1
+}
+
+# @description Determine if a script is in a given language
+# @param language The language to check for
+# @param filepath The file to check
+function is-language() {
+    local language="${1}"
+    local filepath="${2}"
+    local -A extensions=(
+        [sh]="sh"
+        [bash]="sh"
+        [py]="py"
+        [python]="py"
+        [perl]="pl"
+        [ruby]="rb"
+        [php]="php"
+        [node]="js"
+        [java]="java"
+        [groovy]="groovy"
+    )
+    local interpreter
+
+    interpreter=$(get-shebang-interpreter "${filepath}")
+
+    if [[ "${interpreter}" == "${language}" ]]; then
+        return 0
+    fi
+
+    if [[ "${extensions[${language}]}" == "${filepath##*.}" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# @description Determine if a file is a shell script
+# @param filepath The file to check
+function is-shell-script() {
+    local filepath="${1}"
+
+    if is-language "bash" "${filepath}"; then
+        return 0
+    fi
+
+    return 1
+}
+
+# @description Determine if a file is executable
+# @param filepath The file to check
+function is-executable() {
+    local filepath="${1}"
+    [[ -x "${filepath}" ]]
+}
+
+# @description Get a file's permissions in octal format
+# @param filepath The file to check
+function get-permissions() {
+    local filepath="${1}"
+    local permissions
+
+    permissions=$(stat -c "%a" "${filepath}")
+}
+
+# @description Get a file's user and group ownership in the format "user:group"
+# @param filepath The file to check
+function get-ownership() {
+    local filepath="${1}"
+    local ownership
+
+    ownership=$(stat -c "%U:%G" "${filepath}")
+}
