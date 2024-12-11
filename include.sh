@@ -159,22 +159,20 @@ function __debug() {
         @stderr
             The message to print
     '
-    local prefix timestamp
-    # TODO: remove this declare statement
-    # declare -p FUNCNAME BASH_LINENO BASH_SOURCE >&2
+    local __prefix __timestamp
     if [[
             "${INCLUDE_DEBUG}" == "1"
             || "${INCLUDE_DEBUG}" == "true"
             || -n "${INCLUDE_DEBUG_LOG}"
         ]]; then
         [[ ${#} -eq 0 ]] && return 0
-        timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-        prefix="\033[36m[${timestamp}]\033[0m "
-        prefix+="\033[35m$(basename "${BASH_SOURCE[-1]}")"
-        [[ "${FUNCNAME[1]}" != "main" ]] && prefix+="\033[1m:${FUNCNAME[1]}()\033[0m"
-        prefix+="\033[32m:${BASH_LINENO[0]}\033[0m -- "
+        __timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+        __prefix="\033[36m[${__timestamp}]\033[0m "
+        __prefix+="\033[35m$(basename "${BASH_SOURCE[-1]}")"
+        [[ "${FUNCNAME[1]}" != "main" ]] && __prefix+="\033[1m:${FUNCNAME[1]}()\033[0m"
+        __prefix+="\033[32m:${BASH_LINENO[0]}\033[0m -- "
         printf "%s\n" "${@}" \
-            | awk -v prefix="${prefix}" '{print prefix $0}' >> "${INCLUDE_DEBUG_LOG:-/dev/stderr}"
+            | awk -v prefix="${__prefix}" '{print prefix $0}' >> "${INCLUDE_DEBUG_LOG:-/dev/stderr}"
     else
         return 1
     fi
@@ -186,9 +184,11 @@ function __get_shell() {
         @stdout
             The current shell
     '
-    local process_name=$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')
-    local shell=$(basename "${process_name}" | tr '[:upper:]' '[:lower:]')
-    echo "${shell}"
+    local __process_name
+    local __shell
+    __process_name=$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')
+    __shell=$(basename "${process_name}" | tr '[:upper:]' '[:lower:]')
+    echo "${__shell}"
 }
 
 function __functionname() {
@@ -209,17 +209,17 @@ function __functionname() {
         @return 108
             If the shell is not recognized
     '
-    local shell=$(__get_shell)
-    local index=${1:- -1}
-    case "${shell}" in
+    local __shell=$(__get_shell)
+    local __index=${1:- -1}
+    case "${__shell}" in
         bash)
-            echo ${FUNCNAME[${index}]}
+            echo ${FUNCNAME[${__index}]}
             ;;
         zsh)
-            echo ${funcstack[${index}]}
+            echo ${funcstack[${__index}]}
             ;;
         *)
-            echo "unknown shell: ${shell}" >&2
+            echo "unknown shell: ${__shell}" >&2
             return 108
             ;;
     esac
@@ -245,12 +245,12 @@ function __in_array() {
     '
     #__debug "_call(${*})"
 
-    local item array el
-    item="${1}"
-    array=( "${@:2}" )
+    local __item __array=() __el
+    __item="${1}"
+    __array=( "${@:2}" )
 
-    for el in ${array[@]}; do
-        if [[ "${el}" == "${item}" ]]; then
+    for __el in ${__array[@]}; do
+        if [[ "${__el}" == "${__item}" ]]; then
             return 0
         fi
     done
@@ -373,45 +373,46 @@ function __include_libs_get_path() {
     @stdout     The value of <SHELL>_LIB_PATH or PATH
     '
     #__debug "_call(${*})"
-    local path shell_lower shell_upper lib_path lib_path_value
+    local __shell_lower __shell_upper 
+    local __path __lib_path_name __lib_path_value
 
     # reliably determine the shell
-    local shell_lower=$(__get_shell)
-    local shell_upper=$(echo "${shell_lower}" | tr '[:lower:]' '[:upper:]')
+    __shell_lower=$(__get_shell)
+    __shell_upper=$(echo "${__shell_lower}" | tr '[:lower:]' '[:upper:]')
 
     # determine the current shell's lib path
-    local lib_path_name="${shell_upper}_LIB_PATH"
+    __lib_path_name="${__shell_upper}_LIB_PATH"
     #__debug "lib_path_name: ${lib_path_name}"
 
     # load the value of the lib path from the environment
-    if [ "${shell_lower}" = "bash" ]; then
+    if [ "${__shell_lower}" = "bash" ]; then
         #__debug "getting bash lib path"
-        local lib_path_value="${!lib_path_name}"
-    elif [ "${shell_lower}" = "zsh" ]; then
+        __lib_path_value="${!__lib_path_name}"
+    elif [ "${__shell_lower}" = "zsh" ]; then
         #__debug "getting zsh lib path"
-        local lib_path_value="${(P)lib_path_name}"
+        __lib_path_value="${(P)__lib_path_name}"
     else
         #__debug "attempting generic lib path eval"
         # attempt a generic eval, although chances are low that the rest of
         # the module will work even if this does
-        eval local lib_path_value="\$${lib_path_name}"
+        eval local __lib_path_value="\$${__lib_path_name}"
         if [ $? -ne 0 ]; then
-            echo "$(__functionname): failed to determine the value of '${lib_path_name}'" >&2
+            echo "$(__functionname): failed to determine the value of '${__lib_path_name}'" >&2
             return 1
         fi
     fi
 
-    lib_path="${lib_path_value:-${PATH}}"
+    __path="${__lib_path_value:-${PATH}}"
 
     # If LIB_DIR is set, append it to the lib path
     if [[ -n "${LIB_DIR}" ]]; then
-        [[ -n "${lib_path}" ]] \
-            && lib_path="${LIB_DIR}:${lib_path}" \
-            || lib_path="${LIB_DIR}"
+        [[ -n "${__path}" ]] \
+            && __path="${LIB_DIR}:${__path}" \
+            || __path="${LIB_DIR}"
     fi
 
     #__debug "lib_path: ${lib_path}"
-    echo "${lib_path}"
+    echo "${__path}"
 }
 
 function __include_libs_get_filepath() {
@@ -425,11 +426,12 @@ function __include_libs_get_filepath() {
     #__debug "_call(${*})"
 
     local __filename="${1}"
-    local __dir
+    local __local_filepath
+    local __dir __lib_path_array=()
 
     # look for the file in the current directory with and without the .sh
     # extension
-    local __local_filepath="$(pwd)/${__filename}"
+    __local_filepath="$(pwd)/${__filename}"
     if [[ -f "${__local_filepath}" && -r "${__local_filepath}" ]]; then
         echo "${__local_filepath}"
         return 0
@@ -439,7 +441,7 @@ function __include_libs_get_filepath() {
     fi
 
     # Try to find the path in <SHELL>_LIB_PATH or PATH, with or without the .sh
-    local __lib_path_array
+    __lib_path_array
     IFS=":" read -ra __lib_path_array <<< "$(__include_libs_get_path)"
     #__debug "__lib_path_array: ${__lib_path_array[@]}"
     for __dir in "${__lib_path_array[@]}"; do
@@ -469,17 +471,18 @@ function __include_libs_get_location() {
     '
     #__debug "_call(${*})"
 
-    local filename="${1}"
+    local __filename="${1}"
+    local __filepath
 
     # determine if the file is a filepath or a url
-    if [ "${filename}" =~ ^https?:// ]; then
-        echo "${filename}"
+    if [ "${__filename}" =~ ^https?:// ]; then
+        echo "${__filename}"
         return 0
     fi
 
-    local filepath="$(__include_libs_get_filepath "${filename}")"
+    __filepath="$(__include_libs_get_filepath "${__filename}")"
     if [ $? -eq 0 ]; then
-        echo "${filepath}"
+        echo "${__filepath}"
         return 0
     fi
     return 1
@@ -497,45 +500,46 @@ function source-url() {
     '
     #__debug "_call(${*})"
 
-    local url="${1}"
-    local filename="${url##*/}"
+    local __url="${1}"
+    local __filename="${__url##*/}"
     shift 1
-    local source_args=("${@}")
+    local __source_args=("${@}")
     local __exit_code=0
+    local __tmp_dir __script_file
 
     # treat the filename as a url
     if [ "${SHOW_LOCATION}" -eq 1 ] 2>/dev/null; then
-        echo "${url}"
+        echo "${__url}"
         return 0
     elif [ "${VERBOSE}" -eq 1 ] 2>/dev/null; then
-        echo "$(__functionname): sourcing '${filename}'"
+        echo "$(__functionname): sourcing '${__filename}'"
     fi
 
     # download the script
-    local tmp_dir=$(mktemp -dt "$(__functionname).XXXXX")
-    local script_file="${tmp_dir}/${filename}"
+    __tmp_dir=$(mktemp -dt "$(__functionname).XXXXX")
+    __script_file="${__tmp_dir}/${__filename}"
 
     # ensure the temporary directory is removed on function return
-    trap "rm -rf ${tmp_dir}" RETURN
+    trap "rm -rf ${__tmp_dir}" RETURN
 
-    curl -s -o "${script_file}" "${url}"
+    curl -s -o "${__script_file}" "${__url}"
     if [ $? -ne 0 ] && [ "${VERBOSE}" -eq 1 ]; then
-        echo "$(__functionname): failed to download '${filename}'" >&2
+        echo "$(__functionname): failed to download '${__filename}'" >&2
         return 1
     fi
 
     # print the contents of the script if requested
     if [ "${DO_CAT}" -eq 1 ]; then
-        cat "${script_file}"
+        cat "${__script_file}"
     fi
 
     # source the contents of the downloaded script
     if [ "${DO_SOURCE}" -eq 1 ]; then
-        source "${script_file}" "${source_args[@]}"
+        source "${__script_file}" "${__source_args[@]}"
         __exit_code=${?}
         ### NOTE: INCLUDE_LIBS Removal
         # If successful, add the URL to the list of included libs
-        #INCLUDE_LIBS["${filename}"]="${url}"
+        #INCLUDE_LIBS["${__filename}"]="${__url}"
     fi
 
     # return the exit code of the sourced script if available
@@ -552,52 +556,53 @@ function source-lib() {
     '
     #__debug "_call(${*})"
 
-    local filename="${1}"
+    local __filename="${1}"
+    local __filepath
     shift 1
-    local source_args=("${@}")
+    local __source_args=("${@}")
     local __exit_code=0
 
     # get the path to the file
-    local filepath=$(__include_libs_get_filepath "${filename}")
+    __filepath=$(__include_libs_get_filepath "${__filename}")
 
-    #__debug "sourcing filepath: ${filepath}"
+    #__debug "sourcing filepath: ${__filepath}"
 
     # if we couldn't find the file, exit with an error
-    if [ -z "${filepath}" ]; then
-        echo "$(__functionname): failed to find '${filename}'" >&2
+    if [ -z "${__filepath}" ]; then
+        echo "$(__functionname): failed to find '${__filename}'" >&2
         return 1
     fi
 
     # print the location of the file if requested
     if [ "${SHOW_LOCATION}" -eq 1 ]; then
-        echo "${filepath}"
+        echo "${__filepath}"
         return 0
     fi
 
     # print the contents of the script if requested
     if [ "${DO_CAT}" -eq 1 ]; then
-        cat "${filepath}"
+        cat "${__filepath}"
         __exit_code=${?}
     fi
 
     # source the file
     if [ "${DO_SOURCE:-1}" -eq 1 ]; then
         if [ "${VERBOSE:-0}" -eq 1 ]; then
-            echo "$(__functionname): sourcing '${filepath}'"
+            echo "$(__functionname): sourcing '${__filepath}'"
         fi
-        #__debug "sourcing 'source ${filepath} ${source_args[@]}'"
-        source "${filepath}" "${source_args[@]}"
+        #__debug "sourcing 'source ${__filepath} ${__source_args[@]}'"
+        source "${__filepath}" "${__source_args[@]}"
         __exit_code=${?}
-        #__debug "finished sourcing '${filepath}'"
+        #__debug "finished sourcing '${__filepath}'"
         # If successful, add the file to the list of included libs
         if ((__exit_code == 0)); then
             :
-            #__debug "successfully sourced '${filename}'"
+            #__debug "successfully sourced '${__filename}'"
             ### NOTE: INCLUDE_LIBS Removal
-            #INCLUDE_LIBS["${filename}"]="${filepath}"
+            #INCLUDE_LIBS["${__filename}"]="${__filepath}"
         else
             :
-            #__debug "failed to source '${filename}'"
+            #__debug "failed to source '${__filename}'"
         fi
     fi
 
@@ -749,54 +754,57 @@ function __compile_sources_parse_args() {
 # Check if the given filepath has any valid `include-source` or `source` calls.
 # If the given filepath is "-", read from stdin
 function __compile_sources_has_source_calls() {
-    local filepath="${1}"
+    local __filepath="${1}"
+    local __contents
 
     # get the file's contents
-    local contents
-    if [ "${filepath}" = "-" ]; then
-        contents=$(cat)
+    if [ "${__filepath}" = "-" ]; then
+        __contents=$(cat)
     else
-        contents=$(cat "${filepath}")
+        __contents=$(cat "${__filepath}")
     fi
-    echo "${contents}" | grep -Eq '^(include-)?source\b'
+    echo "${__contents}" | grep -Eq '^(include-)?source\b'
 }
 
 # Returns the line number of and shell lib specified by  the first occurrence of
 # "^include-source\b" in the given file. If '-' is specified, read from stdin
 function __compile_sources_find_include_source_line() {
-    local filename="${1:- -}"
+    local __filename="${1:- -}"
+    local __file_contents
+    local __line_number
+    local __line
+    local __sourced_filename
 
     # get the contents of the file
-    local file_contents
-    if [ "${filename}" = "-" ]; then
-        file_contents=$(cat)
+    if [ "${__filename}" = "-" ]; then
+        __file_contents=$(cat)
     else
-        file_contents=$(<"${filename}")
+        __file_contents=$(<"${__filename}")
     fi
 
     # get the line number of the first "include-source" line
-    local line_number=$(
-        echo "${file_contents}" \
+    __line_number=$(
+        echo "${__file_contents}" \
         | grep -n "^include-source\b" \
         | cut -d ':' -f1 \
         | head -n1
     )
 
     # if we couldn't find the line number, exit with an error
-    if [ -z "${line_number}" ]; then
+    if [ -z "${__line_number}" ]; then
         return 1
     fi
 
     # get the line content of that "include-source" line
-    local line=$(echo "${file_contents}" | sed -n "${line_number}p")
+    __line=$(echo "${__file_contents}" | sed -n "${__line_number}p")
 
     # get the sourced filename from the line
-    local sourced_filename=$(echo "${line}" | awk -F " " '{print $2}')
+    __sourced_filename=$(echo "${__line}" | awk -F " " '{print $2}')
 
     # remove any single or double quotes from the beginning/end of the filename
-    sourced_filename="$(echo "${sourced_filename}" | sed "s/^[\"']//;s/[\"']$//")"
+    __sourced_filename="$(echo "${__sourced_filename}" | sed "s/^[\"']//;s/[\"']$//")"
 
-    echo "${line_number}:${sourced_filename}"
+    echo "${__line_number}:${__sourced_filename}"
 }
 
 # accepts a filepath and replaces all "^include-source\b" lines with the
@@ -810,62 +818,71 @@ function __compile_sources() {
     #__debug "_call(${*})"
 
     # get the filepath
-    local filepath="${1}"
+    local __filepath="${1}"
+    local __included_sources
+    local __file_contents
+    local __include_source_line
+    local __line_number
+    local __sourced_filename
+    local __included_filepath
+    local __sourced_contents
+    local __sourced_contents_exit_code
+    local __recursive_exit_code
 
     # treat any remaining arguments as already included files from recursive calls
     shift
-    local included_sources=("$@")
+    __included_sources=("$@")
 
     # get the file contents
-    if [ "${filepath}" = "-" ]; then
-        local file_contents=$(cat)
+    if [ "${__filepath}" = "-" ]; then
+        __file_contents=$(cat)
     else
-        local file_contents=$(<"${filepath}")
+        __file_contents=$(<"${__filepath}")
     fi
 
     # loop while we can find "^include-source\b" lines
-    while grep -q "^include-source\b" <<< "${file_contents}"; do
+    while grep -q "^include-source\b" <<< "${__file_contents}"; do
         # get the line number of the first "include-source" line
-        local include_source_line=$(echo "${file_contents}" | __compile_sources_find_include_source_line -)
-        local line_number=$(echo "${include_source_line}" | cut -d ':' -f1)
-        local sourced_filename=$(echo "${include_source_line}" | cut -d ':' -f2)
+        __include_source_line=$(echo "${__file_contents}" | __compile_sources_find_include_source_line -)
+        __line_number=$(echo "${__include_source_line}" | cut -d ':' -f1)
+        __sourced_filename=$(echo "${__include_source_line}" | cut -d ':' -f2)
 
         # check whether the source has already been included
-        if __in_array "${sourced_filename}" "${included_sources[@]}"; then
+        if __in_array "${__sourced_filename}" "${__included_sources[@]}"; then
             # if it has, remove the "include-source" line from the file
-            local file_contents=$(echo "${file_contents}" | sed -e "${line_number}d")
+            __file_contents=$(echo "${__file_contents}" | sed -e "${__line_number}d")
             continue
         fi
 
         # add the sourced file to the stack of libs that have been included
-        included_sources+=("${sourced_filename}")
+        __included_sources+=("${__sourced_filename}")
 
         # get the filepath or url of the source
-        local included_filepath=$(include-source -l "${sourced_filename}")
+        __included_filepath=$(include-source -l "${__sourced_filename}")
 
         # get the contents of the lib
-        local sourced_contents=$(include-source -n --cat "${sourced_filename}" 2>&1)
-        local sourced_contents_exit_code=$?
+        __sourced_contents=$(include-source -n --cat "${__sourced_filename}" 2>&1)
+        __sourced_contents_exit_code=$?
 
         # if there was an error. exit with an error
-        if [ ${sourced_contents_exit_code} -ne 0 ]; then
-            echo "${sourced_contents}" >&2
+        if [ ${__sourced_contents_exit_code} -ne 0 ]; then
+            echo "${__sourced_contents}" >&2
             return 2
         fi
 
         # if the source file is empty, then exit with an error
-        if [ -z "${sourced_contents}" ]; then
-            echo "$(__functionname): source file '${sourced_filename}' is empty" >&2
+        if [ -z "${__sourced_contents}" ]; then
+            echo "$(__functionname): source file '${__sourced_filename}' is empty" >&2
             return 1
         else
             # check to see if the source file contains any "include-source" lines
-            if grep -q "^include-source\b" <<< "${sourced_contents}"; then
+            if grep -q "^include-source\b" <<< "${__sourced_contents}"; then
                 # if it does, recursively compile the source file
-                local sourced_contents=$(echo "${sourced_contents}" | __compile_sources - "${included_sources[@]}")
+                __sourced_contents=$(echo "${__sourced_contents}" | __compile_sources - "${__included_sources[@]}")
                 # if the recursive sourcing returned a non-zero status, pass it on
-                local recursive_exit_code=$?
-                if [ "${recursive_exit_code}" -ne 0 ]; then
-                    return "${recursive_exit_code}"
+                __recursive_exit_code=$?
+                if [ "${__recursive_exit_code}" -ne 0 ]; then
+                    return "${__recursive_exit_code}"
                 fi
             fi
         fi
@@ -873,7 +890,7 @@ function __compile_sources() {
         # if we successfully loaded some content and include_tags is set,
         # then add a line to the end of the source indicating where it ends
         if [ "${INCLUDE_TAGS:-1}" -eq 1 ]; then
-            local sourced_contents="${sourced_contents}"$'\n'"# $(__functionname): end of '${sourced_filename}'"
+            __sourced_contents="${__sourced_contents}"$'\n'"# $(__functionname): end of '${__sourced_filename}'"
         fi
 
         # if include_tags is set, comment out the include-source line and
@@ -881,28 +898,28 @@ function __compile_sources() {
         # include-source line with the source file contents
         if [ "${INCLUDE_TAGS:-1}" -eq 1 ]; then
             # comment out the include-source line
-            local file_contents=$(echo "${file_contents}" | sed "${line_number}s/^/# /")
+            __file_contents=$(echo "${__file_contents}" | sed "${__line_number}s/^/# /")
         else
             # delete the include-source line
-            local file_contents=$(echo "${file_contents}" | sed "${line_number}d")
-            local line_number=$((line_number - 1))
+            __file_contents=$(echo "${__file_contents}" | sed "${__line_number}d")
+            __line_number=$((__line_number - 1))
         fi
 
         # if the line number is 0, then prepend the contents
-        if [ "${line_number}" -eq 0 ]; then
-            local file_contents="${sourced_contents}"$'\n'"${file_contents}"
+        if [ "${__line_number}" -eq 0 ]; then
+            __file_contents="${__sourced_contents}"$'\n'"${__file_contents}"
         else
             # otherwise, insert the contents after the line number
-            local file_contents=$(
-                sed "${line_number}r /dev/stdin" \
-                    <(echo "${file_contents}") \
-                    <<< "${sourced_contents}"
+            __file_contents=$(
+                sed "${__line_number}r /dev/stdin" \
+                    <(echo "${__file_contents}") \
+                    <<< "${__sourced_contents}"
             )
         fi
     done
 
     # output the compiled file
-    echo "${file_contents}"
+    echo "${__file_contents}"
 }
 
 
@@ -918,21 +935,23 @@ function compile-sources() {
     '
     #__debug "_call(${*})"
 
-    local exit_code=0
-    local filepath="${1}"
+    local __exit_code=0
+    local __filepath="${1}"
+    local __compiled_file
+    local __position_args
 
     __compile_sources_parse_args "$@"
     # exit cleanly if help was displayed or with the exit code if non-zero
     case $? in 0);; 3) return 0 ;; *) return $?;; esac
 
     # loop over each file in the positional arguments
-    for filepath in "${POSITIONAL_ARGS[@]}"; do
+    for __filepath in "${POSITIONAL_ARGS[@]}"; do
         # compile the file
-        local compiled_file=$(__compile_sources "${filepath}")
-        exit_code=$?
+        __compiled_file=$(__compile_sources "${__filepath}")
+        __exit_code=$?
 
         # if the exit code is non-zero, exit with that code
-        if [ "${exit_code}" -ne 0 ]; then
+        if [ "${__exit_code}" -ne 0 ]; then
             break
         fi
 
@@ -940,16 +959,16 @@ function compile-sources() {
         if [ "${IN_PLACE}" -eq 1 ]; then
             if [ "${IN_PLACE_BACKUPS}" -eq 1 ]; then
                 # make a backup of the original file
-                cp "${filepath}" "${filepath}.bak"
+                cp "${__filepath}" "${__filepath}.bak"
             fi
-            echo "${compiled_file}" > "${filepath}"
+            echo "${__compiled_file}" > "${__filepath}"
         else
-            echo "${compiled_file}"
+            echo "${__compiled_file}"
         fi
     done
 
     unset DO_CAT DO_LIST DO_HELP IN_PLACE IN_PLACE_BACKUPS INCLUDE_TAGS POSITIONAL_ARGS
-    return ${exit_code}
+    return ${__exit_code}
 }
 
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
