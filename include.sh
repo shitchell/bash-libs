@@ -424,30 +424,34 @@ function __bash_libs_get_filepath() {
     '
     #__debug "_call(${*})"
 
-    local filename="${1}"
+    local __filename="${1}"
+    local __dir
 
     # look for the file in the current directory with and without the .sh
     # extension
-    if [[ -f "$(pwd)/${filename}" && -r "$(pwd)/${filename}" ]]; then
+    local __local_filepath="$(pwd)/${__filename}"
+    if [[ -f "${__local_filepath}" && -r "${__local_filepath}" ]]; then
+        echo "${__local_filepath}"
         return 0
-    elif [[ -f "$(pwd)/${filename}.sh" && -r "$(pwd)/${filename}.sh" ]]; then
+    elif [[ -f "${__local_filepath}.sh" && -r "${__local_filepath}.sh" ]]; then
+        echo "${__local_filepath}.sh"
         return 0
     fi
 
     # Try to find the path in <SHELL>_LIB_PATH or PATH, with or without the .sh
-    local lib_path_array
-    IFS=":" read -ra lib_path_array <<< "$(__bash_libs_get_path)"
-    #__debug "lib_path_array: ${lib_path_array[@]}"
-    for dir in "${lib_path_array[@]}"; do
-        #__debug "looking for '${filename}' in '${dir}'"
+    local __lib_path_array
+    IFS=":" read -ra __lib_path_array <<< "$(__bash_libs_get_path)"
+    #__debug "__lib_path_array: ${__lib_path_array[@]}"
+    for __dir in "${__lib_path_array[@]}"; do
+        #__debug "looking for '${__filename}' in '${__dir}'"
         # determine if a readable file with the given name exists in this dir
-        if [[ -f "${dir}/${filename}" && -r "${dir}/${filename}" ]]; then
-            #__debug "found '${filename}' in '${dir}'"
-            echo "${dir}/${filename}"
+        if [[ -f "${__dir}/${__filename}" && -r "${__dir}/${__filename}" ]]; then
+            #__debug "found '${__filename}' in '${__dir}'"
+            echo "${__dir}/${__filename}"
             return 0
-        elif [[ -f "${dir}/${filename}.sh" && -r "${dir}/${filename}.sh" ]]; then
-            #__debug "found '${filename}.sh' in '${dir}'"
-            echo "${dir}/${filename}.sh"
+        elif [[ -f "${__dir}/${__filename}.sh" && -r "${__dir}/${__filename}.sh" ]]; then
+            #__debug "found '${__filename}.sh' in '${__dir}'"
+            echo "${__dir}/${__filename}.sh"
             return 0
         fi
     done
