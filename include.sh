@@ -366,7 +366,7 @@ function __include_source_parse_args() {
 ## Helpful functions
 ###
 
-function __bash_libs_get_path() {
+function __include_libs_get_path() {
     : '
     Return the value of <SHELL>_LIB_PATH or PATH if it is not set.
 
@@ -414,7 +414,7 @@ function __bash_libs_get_path() {
     echo "${lib_path}"
 }
 
-function __bash_libs_get_filepath() {
+function __include_libs_get_filepath() {
     : '
     Given a library name (with or without the .sh extension), get its filepath
     in the current directory, <SHELL>_LIB_PATH, or PATH
@@ -440,7 +440,7 @@ function __bash_libs_get_filepath() {
 
     # Try to find the path in <SHELL>_LIB_PATH or PATH, with or without the .sh
     local __lib_path_array
-    IFS=":" read -ra __lib_path_array <<< "$(__bash_libs_get_path)"
+    IFS=":" read -ra __lib_path_array <<< "$(__include_libs_get_path)"
     #__debug "__lib_path_array: ${__lib_path_array[@]}"
     for __dir in "${__lib_path_array[@]}"; do
         #__debug "looking for '${__filename}' in '${__dir}'"
@@ -460,7 +460,7 @@ function __bash_libs_get_filepath() {
     return 1
 }
 
-function __bash_libs_get_location() {
+function __include_libs_get_location() {
     : '
     Get the location of the shell lib, whether a file or url
 
@@ -477,7 +477,7 @@ function __bash_libs_get_location() {
         return 0
     fi
 
-    local filepath="$(__bash_libs_get_filepath "${filename}")"
+    local filepath="$(__include_libs_get_filepath "${filename}")"
     if [ $? -eq 0 ]; then
         echo "${filepath}"
         return 0
@@ -558,7 +558,7 @@ function source-lib() {
     local __exit_code=0
 
     # get the path to the file
-    local filepath=$(__bash_libs_get_filepath "${filename}")
+    local filepath=$(__include_libs_get_filepath "${filename}")
 
     #__debug "sourcing filepath: ${filepath}"
 
@@ -993,9 +993,9 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f __include_source_help_epilogue
     export -f __include_source_help_full
     export -f __include_source_parse_args
-    export -f __bash_libs_get_path
-    export -f __bash_libs_get_filepath
-    export -f __bash_libs_get_location
+    export -f __include_libs_get_path
+    export -f __include_libs_get_filepath
+    export -f __include_libs_get_location
     export -f source-url
     export -f source-lib
     export -f include-source
