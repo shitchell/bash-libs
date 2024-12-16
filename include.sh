@@ -441,7 +441,6 @@ function __include_libs_get_filepath() {
     fi
 
     # Try to find the path in <SHELL>_LIB_PATH or PATH, with or without the .sh
-    __lib_path_array
     IFS=":" read -ra __lib_path_array <<< "$(__include_libs_get_path)"
     #__debug "__lib_path_array: ${__lib_path_array[@]}"
     for __dir in "${__lib_path_array[@]}"; do
