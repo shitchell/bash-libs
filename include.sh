@@ -160,22 +160,41 @@ function __debug() {
             The message to print
     '
     local __prefix __timestamp
-    if [[
-            "${INCLUDE_DEBUG}" == "1"
-            || "${INCLUDE_DEBUG}" == "true"
-            || -n "${INCLUDE_DEBUG_LOG}"
-        ]]; then
-        [[ ${#} -eq 0 ]] && return 0
+    if (
+        [ "${INCLUDE_DEBUG}" == "1" ] ||
+        [ "${INCLUDE_DEBUG}" == "true" ] ||
+        [ -n "${INCLUDE_DEBUG_LOG}" ]
+    ); then
+        [ ${#} -eq 0 ] && return 0
         __timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
         __prefix="\033[36m[${__timestamp}]\033[0m "
         __prefix+="\033[35m$(basename "${BASH_SOURCE[-1]}")"
-        [[ "${FUNCNAME[1]}" != "main" ]] && __prefix+="\033[1m:${FUNCNAME[1]}()\033[0m"
+        [ "${FUNCNAME[1]}" != "main" ] && __prefix+="\033[1m:${FUNCNAME[1]}()\033[0m"
         __prefix+="\033[32m:${BASH_LINENO[0]}\033[0m -- "
         printf "%s\n" "${@}" \
             | awk -v prefix="${__prefix}" '{print prefix $0}' >> "${INCLUDE_DEBUG_LOG:-/dev/stderr}"
     else
         return 1
     fi
+}
+
+function __get_var() {
+    :  'Get the value of a variable by name
+
+        Note: This function is not safe for user input. It should only be used
+        with trusted input.
+
+        @usage
+            <varname>
+
+        @arg <varname>
+            The name of the variable
+
+        @stdout
+            The value of the variable
+    '
+    local __varname="${1}"
+    eval "echo \${${__varname}}"
 }
 
 function __get_shell() {
@@ -185,10 +204,48 @@ function __get_shell() {
             The current shell
     '
     local __process_name
+    local __shell_var
     local __shell
-    __process_name=$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')
-    __shell=$(basename "${process_name}" | tr '[:upper:]' '[:lower:]')
-    echo "${__shell}"
+
+    # For efficiencies, we will first look for a "__SHELL_$$" variable in the
+    # environment which should contain the shell for this specific process. This
+    # function will set that variable on the first run, then use it each
+    # subsequent run.
+    __shell_var="__SHELL_$$"
+    __shell_value=$(__get_var "${__shell_var}")
+    if [ -z "${__shell_value}" ]; then
+        # If the variable is not set, we will determine the shell using the process
+        # name.
+        __process_name=$(ps -p "$$" -o args= | sed 's/^-\?\([^ ]\+\).*/\1/')
+        __shell=$(basename "${__process_name}" | tr '[:upper:]' '[:lower:]')
+        [ -z "${__shell}" ] && return 1
+        export "${__shell_var}"="${__shell}"
+        __shell_value=$(__get_var "${__shell_var}")
+    fi
+
+    echo "${__shell_value}"
+}
+
+function __is_uri() {
+    :  'Test a string to determine if it is a URI
+
+        @usage
+            <string>
+
+        @arg <string>
+            The string to test
+
+        @return 0
+            If the string is a URI
+
+        @return 1
+            If the string is not a URI
+    '
+    local __string="${1}"
+    case "${__string}" in
+        http://* | https://*)  return 0 ;;
+        *)                     return 1 ;;
+    esac
 }
 
 function __functionname() {
@@ -250,7 +307,7 @@ function __in_array() {
     __array=( "${@:2}" )
 
     for __el in ${__array[@]}; do
-        if [[ "${__el}" == "${__item}" ]]; then
+        if [ "${__el}" == "${__item}" ]; then
             return 0
         fi
     done
@@ -303,7 +360,7 @@ function __include_source_parse_args() {
     # parse arguments
     SOURCE_PATH=""
     SOURCE_ARGS=()
-    while [[ ${#} -gt 0 ]]; do
+    while [ ${#} -gt 0 ]; do
         local arg="$1"
         case "$arg" in
             -v | --verbose)
@@ -373,7 +430,7 @@ function __include_libs_get_path() {
     @stdout     The value of <SHELL>_LIB_PATH or PATH
     '
     #__debug "_call(${*})"
-    local __shell_lower __shell_upper 
+    local __shell_lower __shell_upper
     local __path __lib_path_name __lib_path_value
 
     # reliably determine the shell
@@ -405,10 +462,12 @@ function __include_libs_get_path() {
     __path="${__lib_path_value:-${PATH}}"
 
     # If LIB_DIR is set, append it to the lib path
-    if [[ -n "${LIB_DIR}" ]]; then
-        [[ -n "${__path}" ]] \
-            && __path="${LIB_DIR}:${__path}" \
-            || __path="${LIB_DIR}"
+    if [ -n "${LIB_DIR}" ]; then
+        if [ -n "${__path}" ]; then
+            __path="${LIB_DIR}:${__path}"
+        else
+            __path="${LIB_DIR}"
+        fi
     fi
 
     #__debug "lib_path: ${lib_path}"
@@ -432,10 +491,10 @@ function __include_libs_get_filepath() {
     # look for the file in the current directory with and without the .sh
     # extension
     __local_filepath="$(pwd)/${__filename}"
-    if [[ -f "${__local_filepath}" && -r "${__local_filepath}" ]]; then
+    if [ -f "${__local_filepath}" ] && [ -r "${__local_filepath}" ]; then
         echo "${__local_filepath}"
         return 0
-    elif [[ -f "${__local_filepath}.sh" && -r "${__local_filepath}.sh" ]]; then
+    elif [ -f "${__local_filepath}.sh" ] && [ -r "${__local_filepath}.sh" ]; then
         echo "${__local_filepath}.sh"
         return 0
     fi
@@ -446,11 +505,11 @@ function __include_libs_get_filepath() {
     for __dir in "${__lib_path_array[@]}"; do
         #__debug "looking for '${__filename}' in '${__dir}'"
         # determine if a readable file with the given name exists in this dir
-        if [[ -f "${__dir}/${__filename}" && -r "${__dir}/${__filename}" ]]; then
+        if [ -f "${__dir}/${__filename}" ] && [ -r "${__dir}/${__filename}" ]; then
             #__debug "found '${__filename}' in '${__dir}'"
             echo "${__dir}/${__filename}"
             return 0
-        elif [[ -f "${__dir}/${__filename}.sh" && -r "${__dir}/${__filename}.sh" ]]; then
+        elif [ -f "${__dir}/${__filename}.sh" ] && [ -r "${__dir}/${__filename}.sh" ]; then
             #__debug "found '${__filename}.sh' in '${__dir}'"
             echo "${__dir}/${__filename}.sh"
             return 0
@@ -474,7 +533,7 @@ function __include_libs_get_location() {
     local __filepath
 
     # determine if the file is a filepath or a url
-    if [ "${__filename}" =~ ^https?:// ]; then
+    if __is_uri "${__filename}"; then
         echo "${__filename}"
         return 0
     fi
@@ -632,7 +691,7 @@ function include-source() {
         __exit_code=1
     else
         # determine whether to treat the path as a filepath or url
-        if [[ "${SOURCE_PATH}" =~ ^https?:// ]]; then
+        if __is_uri "${SOURCE_PATH}"; then
             # treat the path as a url
             #__debug "sourcing url: ${SOURCE_PATH}"
             source-url "${SOURCE_PATH}" "${SOURCE_ARGS[@]}"
@@ -697,7 +756,7 @@ function __compile_sources_parse_args() {
 
     # parse arguments
     POSITIONAL_ARGS=()
-    while [[ ${#} -gt 0 ]]; do
+    while [ ${#} -gt 0 ]; do
         local arg="$1"
         case "$arg" in
             -i|--in-place)
@@ -970,12 +1029,12 @@ function compile-sources() {
     return ${__exit_code}
 }
 
-if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
     # When sourcing the script, allow some options to be passed in
     __do_set_lib_dir=false
 
     # Parse the arguments
-    while [[ ${#} -gt 0 ]]; do
+    while [ ${#} -gt 0 ]; do
         case "${1}" in
             --set-libdir | --auto)
                 __do_set_lib_dir=true
@@ -990,7 +1049,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Automatically set LIB_DIR to the same directory as the script
     if ${__do_set_lib_dir}; then
         __include_path="${BASH_SOURCE[0]}"
-        if [[ "${__include_path}" == */* ]]; then
+        if [ "${__include_path}" == */* ]; then
             __lib_dir="${__include_path%/*}"
         else
             __lib_dir="."
@@ -1004,7 +1063,9 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     ############################################################################
 
     export -f __debug
+    export -f __get_var
     export -f __get_shell
+    export -f __is_uri
     export -f __functionname
     export -f __in_array
     export -f __include_source_help_usage
