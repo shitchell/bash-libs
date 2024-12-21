@@ -194,7 +194,8 @@ function __get_var() {
             The value of the variable
     '
     local __varname="${1}"
-    eval "echo \${${__varname}}"
+    local __varesc=$(printf "%q" "${__varname}")
+    eval "echo \${${__varesc}}"
 }
 
 function __get_shell() {
@@ -323,7 +324,7 @@ function __in_array() {
 ###
 
 function __include_source_help_usage() {
-    echo "usage: $(__functionname) [-hlnNcCvV] <path>"
+    echo "usage: include-source [-hlnNcCvV] <path>"
 }
 
 function __include_source_help_epilogue() {
@@ -405,7 +406,7 @@ function __include_source_parse_args() {
                 return 3
                 ;;
             -*)
-                echo "$(__functionname): invalid option '${arg}'" >&2
+                echo "include-source: invalid option '${arg}'" >&2
                 return 1
                 ;;
             *)
