@@ -981,6 +981,39 @@ function __compile_sources() {
     echo "${__file_contents}"
 }
 
+## include-bin #################################################################
+################################################################################
+
+# This is a simple function for sourcing scripts from the PATH. It is useful
+# for sourcing scripts that are installed in the PATH, but not in the
+# <SHELL>_LIB_PATH.
+
+function include-bin() {
+    : '
+    Source a script from the PATH
+
+    @usage      <script>
+    '
+    #__debug "_call(${*})"
+
+    local __script="${1}"
+    local __script_path
+
+    # find the script in the PATH
+    __script_path=$(command -v "${__script}" 2>/dev/null)
+
+    # if the script is not found, exit with an error
+    if [ -z "${__script_path}" ]; then
+        echo "$(__functionname): script '${__script}' not found in PATH" >&2
+        return 1
+    fi
+
+    # source the script
+    source "${__script_path}"
+}
+
+function which-source() { include-bin "${@}"; }
+
 
 ## main functions
 ###
