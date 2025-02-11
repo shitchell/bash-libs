@@ -7,8 +7,12 @@ include-source debug
 function csv-quote {
     :  'Quote a string for use in a CSV file
 
+        Quote a string for use in a CSV file. If the string contains whitespace,
+        the delimiter, or a double quote, the string will be quoted. If no
+        string is provided, the function will read from stdin.
+
         @usage
-            <string>
+            [<string>]
 
         @arg string
             The string to quote
@@ -51,6 +55,13 @@ function csv-quote {
     # If item is still empty, return an error
     if [ -z "${item}" ]; then
         return 1
+    fi
+
+    # If the item is >32,000 characters, print a warning that it might be too
+    # long for some CSV parsers
+    if (( ${#item} > 32000 )); then
+        echo "warning: CSV fields >32,000 characters might cause unexpected" >&2
+        echo "warning: behaviors in some CSV parsers" >&2
     fi
 
     # If $item contains whitespace, the delimeter, or a double quote, quote it
