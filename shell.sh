@@ -112,6 +112,26 @@ function catch() {
     } 2>&1 )";
 }
 
+function get-var() {
+    :  'Get the value of a variable by name
+
+        Note: This function is not safe for user input. It should only be used
+        with trusted input. Cross-shell compatible.
+
+        @usage
+            <varname>
+
+        @arg <varname>
+            The name of the variable
+
+        @stdout
+            The value of the variable
+    '
+    local __varname="${1}"
+    local __varesc=$(printf "%q" "${__varname}")
+    eval "echo \${${__varesc}}"
+}
+
 # finds all functions in the given file(s). If "-" is passed as a filename, read
 # from stdin.
 function grep-functions() {
