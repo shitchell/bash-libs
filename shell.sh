@@ -2327,3 +2327,17 @@ function usage() {
     # Print the last line if it's not empty
     [[ -n "${line}" ]] && echo "${line}"
 }
+
+function inthash() {
+    local string
+    local h=5381 i c
+    [[ -n "${1}" ]] \
+        && string=${1} \
+        || { IFS= read -r -d '' string || true; }
+    for (( i=0; i<${#string}; i++ )); do
+        c=$(printf '%d' "'${string:i:1}")
+        (( h = (h << 5) + h + c ))
+    done
+    # (( h < 0 )) && (( h = -h ))  # enforce nonnegative
+    echo "${h}"
+}
