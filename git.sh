@@ -3,11 +3,11 @@
 Git bash functions
 '
 
-include-source 'debug.sh'
-include-source 'echo.sh'
-include-source 'shell.sh'
-include-source 'text.sh'
-include-source 'exit-codes.sh'
+include-source 'debug'
+include-source 'echo'
+include-source 'shell'
+include-source 'text'
+include-source 'exit-codes'
 
 function parse-git-command() {
     :  'Parse a git command into its parts

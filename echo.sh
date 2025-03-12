@@ -3,9 +3,9 @@
 A collection of commands for printing to the console
 '
 
-include-source 'colors.sh'
-include-source 'shell.sh'
-include-source 'text.sh'
+include-source 'colors'
+include-source 'shell'
+include-source 'text'
 
 function echo-formatted() {
     :  'Echo with option based ANSI formatting

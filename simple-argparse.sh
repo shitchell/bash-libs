@@ -1,4 +1,4 @@
-include-source 'debug.sh'
+include-source 'debug'
 
 # @description Silence all output
 # @usage silence-output

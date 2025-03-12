@@ -1,4 +1,4 @@
-include-source 'text.sh'
+include-source 'text'
 
 # @attribution https://stackoverflow.com/a/29653643
 # @attribution https://stackoverflow.com/a/74426351/794241

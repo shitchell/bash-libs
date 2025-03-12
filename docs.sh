@@ -175,7 +175,7 @@ separate the key from the value:
     '
 "
 
-include-source 'debug.sh'
+include-source 'debug'
 
 function generate-library-docs() {
     : '
