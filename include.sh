@@ -1083,7 +1083,7 @@ if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
     # Automatically set LIB_DIR to the same directory as the script
     if ${__do_set_lib_dir}; then
         __include_path="${BASH_SOURCE[0]}"
-        if [ "${__include_path}" == */* ]; then
+        if [[ "${__include_path}" == */* ]]; then
             __lib_dir="${__include_path%/*}"
         else
             __lib_dir="."

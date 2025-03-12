@@ -1064,3 +1064,98 @@ function git-latest-tag() {
         git describe --tags --abbrev=0 "${commitish}"
     fi
 }
+
+function mirror-repo() {
+    :  'Clone and mirror a source repository to a target repository
+
+        Creates a bare clone of a repository locally and then pushes its refs to
+        a new target repository.
+
+        @usage
+            [-h/--help] [-f/--force] [-d/--delete] [-D/--no-delete]
+            <source> <target>"
+    '
+    local __usage="usage: mirror-repo [-d/--delete] [-D/--no-delete] <source> <target>"
+    local __do_delete_refs=true
+    local __do_force=false
+    local __push_args=()
+    local __source_repo=""
+    local __target_repo=""
+    local __arg=""
+
+    while (( ${#} > 0 )); do
+        __arg="${1}"
+        case "${__arg}" in
+            -d | --delete)
+                __do_delete_refs=true
+                shift 1
+                ;;
+            -D | --no-delete)
+                __do_delete_refs=false
+                shift 1
+                ;;
+            -f | --force)
+                __do_force=true
+                shift 1
+                ;;
+            -h | --help)
+                echo "${__usage}"
+                return 0
+                ;;
+            --)
+                shift 1
+                break
+                ;;
+            -*)
+                echo "fatal: unknown option: ${__arg}" >&2
+                echo "${__usage}" >&2
+                return 1
+                ;;
+            *)
+                if [[ -z "${__source_repo}" ]]; then
+                    __source_repo="${__arg}"
+                elif [[ -z "${__target_repo}" ]]; then
+                    __target_repo="${__arg}"
+                else
+                    echo "fatal: unexpected argument: ${__arg}" >&2
+                    echo "${__usage}" >&2
+                    return 1
+                fi
+                shift 1
+                ;;
+        esac
+    done
+
+    if [[ -z "${__source_repo}" || -z "${__target_repo}" ]]; then
+        echo "${__usage}" >&2
+        return 1
+    fi
+
+    ${__do_force} && __push_args+=( --force )
+    __push_args+=( "${__target_repo}" )
+
+    local __tmp_dir
+    __tmp_dir=$(mktemp -d)
+    trap "rm -fr '${__tmp_dir}'" RETURN
+
+    git clone --mirror "${__source_repo}" "${__tmp_dir}" || {
+        echo "fatal: failed to clone ${__source_repo}" >&2
+        return 1
+    }
+
+    if ${__do_delete_refs}; then
+        git -C "${__tmp_dir}" push --mirror "${__push_args[@]}" || {
+            echo "fatal: failed to push mirror to ${__target_repo}" >&2
+            return 1
+        }
+    else
+        git -C "${__tmp_dir}" push --all "${__push_args[@]}" || {
+            echo "fatal: failed to push branches to ${__target_repo}" >&2
+            return 1
+        }
+        git -C "${__tmp_dir}" push --tags "${__push_args[@]}" || {
+            echo "fatal: failed to push tags to ${__target_repo}" >&2
+            return 1
+        }
+    fi
+}
