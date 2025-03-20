@@ -353,9 +353,9 @@ function csv-column-index() {
 
     # If the filepath is empty and stdin is available, read from stdin
     if [ -z "${filepath}" ] && ! [ -t 0 ]; then
-        data=$(cat)
+        data=$(head -n 1)
     elif [ -n "${filepath}" ]; then
-        data=$(cat "${filepath}")
+        data=$(head -n 1 "${filepath}")
     else
         return 2
     fi
@@ -378,6 +378,68 @@ function csv-column-index() {
             return 0
         fi
     done
+
+    return 1
+}
+
+function csv-get-column-names() {
+    :  'Get the column names from a CSV file
+
+        Retrieves the column names from a CSV based on the first row. This
+        assumes the first row is a header row. Stores the resulting names in an
+        array variable, by default named "CSV_COLUMN_NAMES".
+
+        @usage
+            csv-get-column-names [-f/--file <file>] [<name>]
+
+        @option -f/--file <file>
+            The CSV file to read from
+
+        @arg name
+            Store the output array in this variable
+
+        @stdout
+            The column names
+
+        @return 0
+            Successful completion
+
+        @return 1
+            If the file could not be read (does not exist, no permissions, etc.)
+    '
+    local __filepath
+    local __data
+    local __name="CSV_COLUMN_NAMES"
+
+    # Parse the arguments
+    while [ ${#} -gt 0 ]; do
+        case "${1}" in
+            -f | --file)
+                __filepath="${2}"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # If the filepath is empty and stdin is available, read from stdin
+    if [ -z "${__filepath}" ] && ! [ -t 0 ]; then
+        __data=$(head -n 1)
+    elif [ -n "${__filepath}" ]; then
+        __data=$(head -n 1 "${__filepath}")
+    else
+        return 1
+    fi
+
+    if [ -z "${__data}" ]; then
+        return 1
+    fi
+
+    # Split the first row of the data
+    csv-split -d , "${__data}" "${__name}"
+    export "${__name}"
 }
 
 function csv-row-dict() {
