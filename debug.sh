@@ -169,7 +169,7 @@ function debug() (
     #   - DEBUG is set to an integer and >= the debug level, or
     #   - DEBUG_LOG is set (if DEBUG is not set, default to 1)
     if [[
-        "${DEBUG}" =~ ^"true"|"all"|"*"$ \
+        "${DEBUG}" =~ ^("true"|"all"|"*")$ \
         || ("${DEBUG}" =~ ^[0-9]+$ && "${DEBUG}" -ge ${debug_level})
     ]]; then
         # if no arguments at all are provided, simply return 0 to indicate that
