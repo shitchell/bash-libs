@@ -818,3 +818,77 @@ function csv-get() {
     done <<< "${data}"
     declare -p results
 }
+
+function validate-csv() {
+    :  'Validate a CSV file
+
+        @usage
+            validate-csv [-f/--file <file>] [-d/--delimiter <delimiter>]
+            cat <file> | validate-csv [options]
+
+        @option -f/--file <file>
+            The CSV file to read from
+
+        @option -d/--delimiter <delimiter>
+            The delimiter to use (default: ,)
+    '
+    local -- filepath
+    local -- delimiter=","
+    local -i __field_count=0
+    local -- data
+    local -- row
+
+    # Parse the arguments
+    while [ ${#} -gt 0 ]; do
+        case "${1}" in
+            -f | --file)
+                filepath="${2}"
+                shift 2
+                ;;
+            -d | --delimiter)
+                delimiter="${2}"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # If the filepath is empty and stdin is available, read from stdin
+    if [[ -z "${filepath}" ]] && ! [ -t 0 ]; then
+        data=$(cat)
+    elif [[ -n "${filepath}" ]]; then
+        data=$(cat "${filepath}")
+    else
+        echo "warning: no csv data" >&2
+        return 1
+    fi
+
+    if [[ -z "${data}" ]]; then
+        return 2
+    fi
+
+    # Loop over the rows
+    while read -r row; do
+        # Split the row into fields
+        csv-split -d "${delimiter}" "${row}" fields
+
+        # Check if the number of fields is the same as the first row
+        if [[ ${__field_count} -eq 0 ]]; then
+            __field_count=${#fields[@]}
+        elif [[ ${#fields[@]} -ne ${__field_count} ]]; then
+            echo "error: invalid CSV format" >&2
+            return 3
+        fi
+
+        # Some CSV parsers don't like fields > 32,000 characters, so print a
+        # warning if the field is too long
+        for field in "${fields[@]}"; do
+            if [[ ${#field} -gt 32000 ]]; then
+                echo "warning: CSV fields >32,000 characters might cause unexpected" >&2
+                echo "warning: behaviors in some CSV parsers" >&2
+            fi
+        done
+    done <<< "${data}"
+}
