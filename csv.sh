@@ -819,12 +819,11 @@ function csv-get() {
     declare -p results
 }
 
-function validate-csv() {
+function csv-validate() {
     :  'Validate a CSV file
 
         @usage
-            validate-csv [-f/--file <file>] [-d/--delimiter <delimiter>]
-            cat <file> | validate-csv [options]
+            [-f/--file <file>] [-d/--delimiter <delimiter>]
 
         @option -f/--file <file>
             The CSV file to read from
