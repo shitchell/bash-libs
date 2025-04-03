@@ -823,10 +823,13 @@ function csv-validate() {
     :  'Validate a CSV file
 
         @usage
-            [-f/--file <file>] [-d/--delimiter <delimiter>]
+            [-f/--file <file>] [-v/--verbose] [-d/--delimiter <delimiter>]
 
         @option -f/--file <file>
             The CSV file to read from
+
+        @option -v/--verbose
+            Show the line and line number where an error occurred
 
         @option -d/--delimiter <delimiter>
             The delimiter to use (default: ,)
@@ -836,6 +839,9 @@ function csv-validate() {
     local -i __field_count=0
     local -- data
     local -- row
+    local -i __line_number=0
+    local -- fields=()
+    local -- do_verbose=false
 
     # Parse the arguments
     while [ ${#} -gt 0 ]; do
@@ -843,6 +849,14 @@ function csv-validate() {
             -f | --file)
                 filepath="${2}"
                 shift 2
+                ;;
+            -v | --verbose)
+                do_verbose=true
+                shift
+                ;;
+            -V | --no-verbose)
+                do_verbose=false
+                shift
                 ;;
             -d | --delimiter)
                 delimiter="${2}"
@@ -877,7 +891,12 @@ function csv-validate() {
         if [[ ${__field_count} -eq 0 ]]; then
             __field_count=${#fields[@]}
         elif [[ ${#fields[@]} -ne ${__field_count} ]]; then
-            echo "error: invalid CSV format" >&2
+            if ${do_verbose}; then
+                echo "error: line ${__line_number}: ${row}" >&2
+                echo "error: expected ${__field_count} fields, got ${#fields[@]}" >&2
+            else
+                echo "error: invalid CSV format" >&2
+            fi
             return 3
         fi
 
