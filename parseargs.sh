@@ -169,26 +169,6 @@ declare -g PARSEARGS_EPILOG=""
 declare -g PARSEARGS_HELP=""
 declare -g PARSEARGS_ACTIVE_SUBCOMMAND=""
 
-# @description Print debug message if debugging is enabled for argparse
-# @usage parseargs-debug [<level>] <message>
-function parseargs-debug() {
-    local level=1
-
-    # Check if first arg is a number (debug level)
-    if [[ "${1}" =~ ^[0-9]+$ ]]; then
-        level=${1}
-        shift
-    fi
-
-    # Prefix the message with "argparse:"
-    local message="argparse: ${*}"
-
-    # Call the global debug function if it exists
-    if declare -f debug &>/dev/null; then
-        debug ${level} "${message}"
-    fi
-}
-
 # @description Initialize the parser
 # @usage parseargs-init
 function parseargs-init() {
@@ -207,35 +187,35 @@ function parseargs-init() {
     PARSEARGS_HELP=""
     PARSEARGS_ACTIVE_SUBCOMMAND=""
 
-    parseargs-debug "Parser initialized"
+    debug "Parser initialized"
 }
 
 # @description Set the program name for the parser
 # @usage parseargs-set-prog-name <program name>
 function parseargs-set-prog-name() {
     PARSEARGS_PROG_NAME="${1}"
-    parseargs-debug "Program name set to '${PARSEARGS_PROG_NAME}'"
+    debug "Program name set to '${PARSEARGS_PROG_NAME}'"
 }
 
 # @description Set the usage text for the parser
 # @usage parseargs-set-usage <usage text>
 function parseargs-set-usage() {
     PARSEARGS_USAGE="${1}"
-    parseargs-debug "Usage text set"
+    debug "Usage text set"
 }
 
 # @description Set the epilog text for the parser
 # @usage parseargs-set-epilog <epilog text>
 function parseargs-set-epilog() {
     PARSEARGS_EPILOG="${1}"
-    parseargs-debug "Epilog text set"
+    debug "Epilog text set"
 }
 
 # @description Set the help text for the parser
 # @usage parseargs-set-help <help text>
 function parseargs-set-help() {
     PARSEARGS_HELP="${1}"
-    parseargs-debug "Help text set"
+    debug "Help text set"
 }
 
 # @description Add a subcommand to the parser
@@ -253,7 +233,7 @@ function parseargs-add-subcommand() {
                 shift 2
                 ;;
             *)
-                parseargs-debug "Unknown option: ${1}"
+                debug "Unknown option: ${1}"
                 shift 1
                 ;;
         esac
@@ -262,7 +242,7 @@ function parseargs-add-subcommand() {
     # Store subcommand details
     PARSEARGS_SUBCOMMANDS["${name}:help"]="${help}"
 
-    parseargs-debug "Added subcommand '${name}'"
+    debug "Added subcommand '${name}'"
 }
 
 # @description Parse a short_name/long_name format string into short and long names
@@ -284,7 +264,7 @@ function parseargs-parse-flag-names() {
         # Only short name provided
         short_name="${BASH_REMATCH[1]}"
     else
-        parseargs-debug "Invalid flag name format: ${input}"
+        debug "Invalid flag name format: ${input}"
         return 1
     fi
 
@@ -340,7 +320,7 @@ function parseargs-add-flag() {
                 shift 2
                 ;;
             *)
-                parseargs-debug "Unknown option: ${1}"
+                debug "Unknown option: ${1}"
                 shift 1
                 ;;
         esac
@@ -370,7 +350,7 @@ function parseargs-add-flag() {
         PARSEARGS_FLAGS["verbose:subcommand"]="${subcommand}"
     fi
 
-    parseargs-debug "Added flag '${key}' (${short_name:-n/a}/${long_name:-n/a})"
+    debug "Added flag '${key}' (${short_name:-n/a}/${long_name:-n/a})"
 }
 
 # @description Add a parameter option to the parser
@@ -442,7 +422,7 @@ function parseargs-add-parameter() {
                 shift 2
                 ;;
             *)
-                parseargs-debug "Unknown option: ${1}"
+                debug "Unknown option: ${1}"
                 shift 1
                 ;;
         esac
@@ -471,7 +451,7 @@ function parseargs-add-parameter() {
     PARSEARGS_PARAMETERS["${key}:choices"]="${choices}"
     PARSEARGS_PARAMETERS["${key}:type"]="${type}"
 
-    parseargs-debug "Added parameter '${key}' (${short_name:-n/a}/${long_name:-n/a})"
+    debug "Added parameter '${key}' (${short_name:-n/a}/${long_name:-n/a})"
 }
 
 # @description Add a positional argument to the parser
@@ -522,7 +502,7 @@ function parseargs-add-positional() {
                 shift 2
                 ;;
             *)
-                parseargs-debug "Unknown option: ${1}"
+                debug "Unknown option: ${1}"
                 shift 1
                 ;;
         esac
@@ -539,7 +519,7 @@ function parseargs-add-positional() {
     PARSEARGS_POSITIONALS["${position}:choices"]="${choices}"
     PARSEARGS_POSITIONALS["${position}:type"]="${type}"
 
-    parseargs-debug "Added positional argument '${name}' at position ${position}"
+    debug "Added positional argument '${name}' at position ${position}"
 }
 
 # @description Validate a value against a type
@@ -1070,5 +1050,4 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f parseargs-validate-choices
     export -f parseargs-show-help
     export -f parseargs-parse
-    export -f parseargs-debug
 fi
