@@ -112,6 +112,11 @@ function setup-colors() {
         export ${varname}=$'\033'"[38;5;${i}m"
         export ${varname}_BG=$'\033'"[48;5;${i}m"
     done
+
+    # If there is a `custom-colors()` function, run it
+    if declare -F custom-colors &>/dev/null; then
+        custom-colors &>/dev/null
+    fi
 }
 
 function unset-colors() {
