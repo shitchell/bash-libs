@@ -27,7 +27,7 @@ function set-clipboard() {
 
         @usage
             [-a/--append] [-v/--verbose] [--debug] <content>
-        
+
         @optarg -a/--append
             Append the content to the clipboard instead of replacing it
 
@@ -93,13 +93,13 @@ function set-clipboard() {
 
 function get-clipboard() {
     :  'Get the clipboard contents
-    
+
         @usage
             [-r/--raw] [-t/--text] [-u/--unicode] [-H/--html] [-m/--md]
             [-R/--rtf] [-c/--csv] [-s/--strip-crlf] [-S/--no-strip-crlf]
             [-p/--pandoc <format>] [-i/--image] [-a/--audio]
             [-v/--verbose] [--debug]
-        
+
         @optarg -r/--raw
             Output the clipboard contents as is
 

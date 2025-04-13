@@ -21,7 +21,7 @@ function build-version-regex() {
             [--prefix-delimiter <pattern>] [--prefix-chars <pattern>]
             [--main <pattern>]
             [--suffix-delimiter <pattern>] [--suffix-chars <pattern>]
-        
+
         @stdout
             The version regex pattern
     '
@@ -82,13 +82,13 @@ function parse-version() {
             [--main <pattern>]
             [--suffix-delimiter <pattern>] [--suffix-chars <pattern>]
             <version>
-        
+
         @option -v
             Print the parsed version components
 
         @option --exact
             Require an exact match
-        
+
         @option --no-exact
             Do not require an exact match (extract a version from a string)
 

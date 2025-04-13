@@ -362,7 +362,7 @@ function ignore-object() {
     else
         ! ${do_quiet} && echo "false"
         return 1
-    fi   
+    fi
 }
 
 # @description Return AssetSuite configuration settings
