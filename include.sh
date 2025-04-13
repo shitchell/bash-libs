@@ -1066,6 +1066,7 @@ function compile-sources() {
 if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
     # When sourcing the script, allow some options to be passed in
     __do_set_lib_dir=false
+    __lib_dir=""
 
     # Parse the arguments
     while [ ${#} -gt 0 ]; do
@@ -1073,6 +1074,11 @@ if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
             --set-libdir | --auto)
                 __do_set_lib_dir=true
                 shift
+                ;;
+            --libdir)
+                __do_set_lib_dir=true
+                __lib_dir="${2}"
+                shift 1
                 ;;
             *)
                 break
@@ -1083,10 +1089,12 @@ if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
     # Automatically set LIB_DIR to the same directory as the script
     if ${__do_set_lib_dir}; then
         __include_path="${BASH_SOURCE[0]}"
-        if [[ "${__include_path}" == */* ]]; then
-            __lib_dir="${__include_path%/*}"
-        else
-            __lib_dir="."
+        if [[ -z "${__lib_dir}" ]]; then
+            if [[ "${__include_path}" == */* ]]; then
+                __lib_dir="${__include_path%/*}"
+            else
+                __lib_dir="."
+            fi
         fi
         export LIB_DIR="$(realpath "${__lib_dir}")"
         #__debug "set LIB_DIR=${LIB_DIR}" >&2
