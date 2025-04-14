@@ -437,7 +437,9 @@ function upload-files() {
 function upload-logs() {
     :  'Upload all files in the log directory'
     local log_dir="${1:-${AZURE_LOG_DIR}}"
-    upload-files "${log_dir}"
+    if [[ -d "${log_dir}" ]]; then
+        upload-files "${log_dir}"
+    fi
 
     # If DEBUG_LOG is set, upload it as well
     if [[ -n "${DEBUG_LOG}" && -f "${DEBUG_LOG}" ]]; then
