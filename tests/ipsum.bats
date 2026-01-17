@@ -211,15 +211,15 @@ load '../docs.sh'
     run ipsum -w 20
     [ "$status" -eq 0 ]
     output1="$output"
-    
+
     run ipsum -w 20
     [ "$status" -eq 0 ]
     output2="$output"
-    
+
     # Both should start with Lorem ipsum
     [[ "$output1" =~ ^Lorem\ ipsum\ dolor\ sit\ amet ]]
     [[ "$output2" =~ ^Lorem\ ipsum\ dolor\ sit\ amet ]]
-    
+
     # But the rest should be different (with very high probability)
     # Remove the common beginning to compare the rest
     rest1=${output1#Lorem ipsum dolor sit amet }

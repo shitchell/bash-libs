@@ -12,7 +12,7 @@ include-source 'docs'
 
 function ipsum() {
     :  '[@summary] Generate Lorem Ipsum placeholder text
-        
+
         @description
         Generate Lorem Ipsum placeholder text with customizable output format.
         By default, generates a single paragraph of Lorem Ipsum text. The first
@@ -74,7 +74,7 @@ function ipsum() {
             # Generate 5 paragraphs with 30-50 words each
             ipsum -p 5 -W 30-50
     '
-    
+
     # Lorem Ipsum word bank
     local -a LOREM_WORDS=(
         "lorem" "ipsum" "dolor" "sit" "amet" "consectetur" "adipiscing" "elit"
@@ -93,7 +93,7 @@ function ipsum() {
         "sequi" "nesciunt" "neque" "porro" "quisquam" "dolorem" "adipisci"
         "numquam" "eius" "modi" "tempora" "magnam" "quaerat" "etiam"
     )
-    
+
     # Traditional Lorem Ipsum words (smaller set)
     local -a TRADITIONAL_WORDS=(
         "lorem" "ipsum" "dolor" "sit" "amet" "consectetur" "adipiscing" "elit"
@@ -102,7 +102,7 @@ function ipsum() {
         "veniam" "quis" "nostrud" "exerci" "tation" "ullamcorper" "suscipit"
         "lobortis" "nisl" "aliquip" "ex" "ea" "commodo" "consequat"
     )
-    
+
     # Default values
     local paragraphs=1
     local words_total=""
@@ -116,7 +116,7 @@ function ipsum() {
     local no_newlines=false
     local use_traditional=false
     local help=false
-    
+
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "${1}" in
@@ -199,7 +199,7 @@ function ipsum() {
                 ;;
         esac
     done
-    
+
     # Show help if requested
     if ${help}; then
         # TODO: Update this to use a more user-friendly help formatter once docs.sh
@@ -208,7 +208,7 @@ function ipsum() {
         generate-function-docstring "${FUNCNAME[0]}" >&2
         return 0
     fi
-    
+
     # Select word bank
     local -a word_bank
     if ${use_traditional}; then
@@ -216,11 +216,11 @@ function ipsum() {
     else
         word_bank=("${LOREM_WORDS[@]}")
     fi
-    
+
     # Generate text
     local output=""
     local first_paragraph=true
-    
+
     # Handle different generation modes
     if [[ -n "${words_total}" ]]; then
         # Generate exact number of words
@@ -241,7 +241,7 @@ function ipsum() {
         for ((s = 0; s < sentences_total; s++)); do
             local sentence=""
             local words_in_sentence=$(random-int 5 15)
-            
+
             for ((w = 0; w < words_in_sentence; w++)); do
                 if [[ ${s} -eq 0 ]] && [[ ${w} -eq 0 ]] && ${first_paragraph}; then
                     sentence="Lorem ipsum dolor sit amet"
@@ -258,7 +258,7 @@ function ipsum() {
                     sentence+="${word}"
                 fi
             done
-            
+
             if [[ -n "${output}" ]]; then
                 output+=" "
             fi
@@ -269,11 +269,11 @@ function ipsum() {
         for ((p = 0; p < paragraphs; p++)); do
             local paragraph=""
             local num_sentences=$(random-int "${sentences_per_paragraph_min}" "${sentences_per_paragraph_max}")
-            
+
             for ((s = 0; s < num_sentences; s++)); do
                 local sentence=""
                 local words_in_sentence=$(random-int 5 15)
-                
+
                 for ((w = 0; w < words_in_sentence; w++)); do
                     if [[ ${p} -eq 0 ]] && [[ ${s} -eq 0 ]] && [[ ${w} -eq 0 ]] && ${first_paragraph}; then
                         sentence="Lorem ipsum dolor sit amet"
@@ -290,13 +290,13 @@ function ipsum() {
                         sentence+="${word}"
                     fi
                 done
-                
+
                 if [[ -n "${paragraph}" ]]; then
                     paragraph+=" "
                 fi
                 paragraph+="${sentence}."
             done
-            
+
             if [[ -n "${output}" ]] && ! ${no_newlines}; then
                 output+=$'\n\n'
             elif [[ -n "${output}" ]]; then
@@ -306,6 +306,6 @@ function ipsum() {
             first_paragraph=false
         done
     fi
-    
+
     echo "${output}"
 }
