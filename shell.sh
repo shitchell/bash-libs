@@ -4,10 +4,26 @@ Shell related functions
 
 include-source debug
 
+# Global cache for memoization
+declare -gA __MEMO_CACHE
+
+# Cached version of current shell name
+export __SHELL_NAME_CACHE=""
+
 # returns the name of the current shell
 function get-shell() {
-    basename "$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')" \
-        | tr '[:upper:]' '[:lower:]'
+    # Return cached value if available
+    if [[ -n "${__SHELL_NAME_CACHE}" ]]; then
+        echo "${__SHELL_NAME_CACHE}"
+        return 0
+    fi
+
+    # Calculate and cache the shell name
+    local shell_name
+    shell_name=$(basename "$(ps -p "$$" -o args= | awk '{print $1}' | sed 's/^-//')" \
+        | tr '[:upper:]' '[:lower:]')
+    __SHELL_NAME_CACHE="${shell_name}"
+    echo "${shell_name}"
 }
 
 # cross-shell function for returning the calling function name
@@ -2326,6 +2342,58 @@ function usage() {
 
     # Print the last line if it's not empty
     [[ -n "${line}" ]] && echo "${line}"
+}
+
+function memoize() {
+    :  'Memoize function results for performance
+
+        Generic memoization function that caches the results of expensive
+        function calls. The cache key is based on the function name and all
+        arguments.
+
+        @usage
+            memoize <function> [args...]
+
+        @arg function
+            The function to call and memoize
+
+        @arg args
+            Arguments to pass to the function
+
+        @stdout
+            The cached or newly computed result
+
+        @example
+            # First call computes the result
+            result=$(memoize expensive-function arg1 arg2)
+
+            # Second call returns cached result
+            result=$(memoize expensive-function arg1 arg2)
+    '
+    local key="$*"
+
+    # Check if result is cached
+    if [[ -n "${__MEMO_CACHE[$key]+isset}" ]]; then
+        echo "${__MEMO_CACHE[$key]}"
+        return 0
+    fi
+
+    # Compute and cache the result
+    local result
+    result=$("$@")
+    __MEMO_CACHE[$key]="$result"
+    echo "$result"
+}
+
+function memoize-clear() {
+    :  'Clear the memoization cache
+
+        Clears all cached results from the memoization cache.
+
+        @usage
+            memoize-clear
+    '
+    __MEMO_CACHE=()
 }
 
 function inthash() {

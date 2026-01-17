@@ -716,3 +716,334 @@ function test-func-single-redirect() {
         return ${i}
     done
 } 2>&1  1>&2
+
+function docs() {
+    : 'Extract and display documentation for a function
+
+        @usage
+            <function_name>
+
+        @arg <function_name>
+            The name of the function to document
+
+        @stdout
+            Human-readable documentation with parsed tags
+
+        @return 0
+            Successfully extracted and displayed documentation
+
+        @return 1
+            Function name not provided
+
+        @return 2
+            Function does not exist
+
+        @return 3
+            No docstring found
+    '
+    local func_name="$1"
+
+    # Validate input
+    [[ -z "$func_name" ]] && return 1
+
+    # Get function body
+    local func_body
+    func_body=$(declare -f "$func_name") || return 2
+
+    # Extract docstring using existing helper
+    local docstring
+    docstring=$(__extract_docstring "$func_body") || return 3
+
+    # Parse docstring
+    local -A DOCSTRING
+    eval "$(__parse_docstring "$docstring")" || return 3
+
+    # Display formatted documentation
+    echo "Function: $func_name"
+    echo "========================================="
+    echo
+
+    # Summary (if present)
+    if [[ -n "${DOCSTRING[summary]}" ]]; then
+        echo "${DOCSTRING[summary]}"
+        echo
+    fi
+
+    # Description
+    if [[ -n "${DOCSTRING[description]}" ]]; then
+        echo "Description:"
+        echo "${DOCSTRING[description]}" | sed 's/^/  /'
+        echo
+    fi
+
+    # Usage
+    if [[ -n "${DOCSTRING[usage]}" ]]; then
+        echo "Usage:"
+        echo "  $func_name ${DOCSTRING[usage]}"
+        echo
+    fi
+
+    # Arguments
+    local has_args=false
+    for key in "${!DOCSTRING[@]}"; do
+        if [[ "$key" == "arg" ]] || [[ "$key" == "arg+"* ]] || [[ "$key" == "optarg" ]]; then
+            if ! $has_args; then
+                echo "Arguments:"
+                has_args=true
+            fi
+            # Handle multiple args separated by Record Separator
+            IFS=$'\x1e' read -ra args <<< "${DOCSTRING[$key]}"
+            for arg in "${args[@]}"; do
+                # Split by Unit Separator to get arg name and description
+                IFS=$'\x1f' read -r arg_name arg_desc <<< "$arg"
+                printf "  %-20s %s\n" "$arg_name" "$arg_desc"
+            done
+        fi
+    done
+    [[ $has_args == true ]] && echo
+
+    # Options
+    if [[ -n "${DOCSTRING[option]}" ]]; then
+        echo "Options:"
+        # Handle multiple options separated by Record Separator
+        IFS=$'\x1e' read -ra options <<< "${DOCSTRING[option]}"
+        for option in "${options[@]}"; do
+            if [[ "$option" =~ $'\x1f' ]]; then
+                # Split by Unit Separator to get option and description
+                IFS=$'\x1f' read -r opt_name opt_desc <<< "$option"
+                printf "  %-20s %s\n" "$opt_name" "$opt_desc"
+            else
+                # Handle options without proper formatting
+                # Try to split by colon or space
+                if [[ "$option" =~ ^([^:]+):(.*)$ ]] || [[ "$option" =~ ^([^ ]+)\ +(.*)$ ]]; then
+                    printf "  %-20s %s\n" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+                else
+                    echo "  $option"
+                fi
+            fi
+        done
+        echo
+    fi
+
+    # Return values
+    if [[ -n "${DOCSTRING[return]}" ]]; then
+        echo "Return values:"
+        # Handle multiple returns separated by Record Separator
+        IFS=$'\x1e' read -ra returns <<< "${DOCSTRING[return]}"
+        for ret in "${returns[@]}"; do
+            # Split by Unit Separator to get code and description
+            IFS=$'\x1f' read -r ret_code ret_desc <<< "$ret"
+            printf "  %-5s %s\n" "$ret_code" "$ret_desc"
+        done
+        echo
+    fi
+
+    # Other standard tags
+    for tag in stdin stdout stderr setenv; do
+        if [[ -n "${DOCSTRING[$tag]}" ]]; then
+            echo "${tag^}:"
+            echo "  ${DOCSTRING[$tag]}"
+            echo
+        fi
+    done
+}
+
+function docs-all() {
+    : 'Document all functions in the current environment or specified file
+
+        @usage
+            [--file <filepath>] [--filter <pattern>]
+
+        @option --file <filepath>
+            Source file to extract functions from (default: current environment)
+
+        @option --filter <pattern>
+            Only document functions matching this pattern
+
+        @stdout
+            Documentation for all matching functions
+
+        @return 0
+            Successfully documented at least one function
+
+        @return 1
+            No functions found or documented
+    '
+    local file=""
+    local filter=""
+    local documented=0
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --file)
+                file="$2"
+                shift 2
+                ;;
+            --filter)
+                filter="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    # Get list of functions
+    local functions
+    if [[ -n "$file" ]]; then
+        # Extract functions from file
+        functions=$(grep-functions "$file" 2>/dev/null)
+        # Source the file to make functions available
+        source "$file" 2>/dev/null
+    else
+        # Get all functions in current environment
+        functions=$(declare -F | awk '{print $3}')
+    fi
+
+    # Apply filter if specified
+    if [[ -n "$filter" ]]; then
+        functions=$(echo "$functions" | grep -E "$filter")
+    fi
+
+    # Document each function
+    while IFS= read -r func; do
+        [[ -z "$func" ]] && continue
+
+        # Skip internal functions
+        [[ "$func" =~ ^__ ]] && continue
+
+        # Try to document the function
+        if docs "$func" 2>/dev/null; then
+            echo
+            echo "----------------------------------------"
+            echo
+            documented=$((documented + 1))
+        fi
+    done <<< "$functions"
+
+    [[ $documented -gt 0 ]] && return 0 || return 1
+}
+
+function docs-generate-help() {
+    : 'Generate help text for parseargs integration
+
+        @usage
+            <function_name> [--format <format>]
+
+        @arg <function_name>
+            The function to generate help for
+
+        @option --format <format>
+            Output format: plain (default), markdown, man
+
+        @stdout
+            Help text suitable for parseargs or other help systems
+
+        @return 0
+            Successfully generated help
+
+        @return 1
+            Function not found or no docstring
+    '
+    local func_name="$1"
+    local format="plain"
+
+    # Parse arguments
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --format)
+                format="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Validate input
+    [[ -z "$func_name" ]] && return 1
+
+    # Get function body
+    local func_body
+    func_body=$(declare -f "$func_name") || return 1
+
+    # Extract and parse docstring
+    local docstring
+    docstring=$(__extract_docstring "$func_body") || return 1
+
+    local -A DOCSTRING
+    eval "$(__parse_docstring "$docstring")" || return 1
+
+    # Generate help based on format
+    case "$format" in
+        plain)
+            # Generate plain text help
+            [[ -n "${DOCSTRING[summary]}" ]] && echo "${DOCSTRING[summary]}"
+            [[ -n "${DOCSTRING[description]}" ]] && echo && echo "${DOCSTRING[description]}"
+
+            if [[ -n "${DOCSTRING[usage]}" ]]; then
+                echo && echo "Usage: $func_name ${DOCSTRING[usage]}"
+            fi
+
+            # Options for parseargs
+            if [[ -n "${DOCSTRING[option]}" ]]; then
+                echo && echo "Options:"
+                IFS=$'\x1e' read -ra options <<< "${DOCSTRING[option]}"
+                for option in "${options[@]}"; do
+                    if [[ "$option" =~ $'\x1f' ]]; then
+                        IFS=$'\x1f' read -r opt_name opt_desc <<< "$option"
+                        echo "  $opt_name"
+                        echo "    $opt_desc"
+                    else
+                        # Handle options without Unit Separator
+                        echo "  $option"
+                    fi
+                done
+            fi
+            ;;
+
+        markdown)
+            # Generate markdown formatted help
+            echo "# $func_name"
+            [[ -n "${DOCSTRING[summary]}" ]] && echo && echo "${DOCSTRING[summary]}"
+            [[ -n "${DOCSTRING[description]}" ]] && echo && echo "${DOCSTRING[description]}"
+
+            if [[ -n "${DOCSTRING[usage]}" ]]; then
+                echo && echo "## Usage"
+                echo && echo '```bash'
+                echo "$func_name ${DOCSTRING[usage]}"
+                echo '```'
+            fi
+
+            if [[ -n "${DOCSTRING[option]}" ]]; then
+                echo && echo "## Options"
+                IFS=$'\x1e' read -ra options <<< "${DOCSTRING[option]}"
+                for option in "${options[@]}"; do
+                    if [[ "$option" =~ $'\x1f' ]]; then
+                        IFS=$'\x1f' read -r opt_name opt_desc <<< "$option"
+                        echo "- \`$opt_name\` - $opt_desc"
+                    else
+                        # Handle options without proper formatting
+                        if [[ "$option" =~ ^([^:]+):(.*)$ ]] || [[ "$option" =~ ^([^ ]+)\ +(.*)$ ]]; then
+                            echo "- \`${BASH_REMATCH[1]}\` - ${BASH_REMATCH[2]}"
+                        else
+                            echo "- $option"
+                        fi
+                    fi
+                done
+            fi
+            ;;
+
+        *)
+            echo "Unsupported format: $format" >&2
+            return 1
+            ;;
+    esac
+
+    return 0
+}

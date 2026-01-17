@@ -168,10 +168,40 @@ declare -g PARSEARGS_USAGE=""
 declare -g PARSEARGS_EPILOG=""
 declare -g PARSEARGS_HELP=""
 declare -g PARSEARGS_ACTIVE_SUBCOMMAND=""
+declare -g PARSEARGS_FROM_FUNCTION=""
 
 # @description Initialize the parser
 # @usage parseargs-init
 function parseargs-init() {
+    : 'Initialize the argument parser
+
+        @usage
+            parseargs-init [--from-function <function_name>]
+
+        @option --from-function <function_name>
+            Initialize parser from function docstring
+
+        @return 0
+            Successfully initialized
+
+        @return 1
+            Error during initialization
+    '
+    local from_function=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --from-function)
+                from_function="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
     # Reset all global variables
     declare -gA PARSEARGS_FLAGS=()
     declare -gA PARSEARGS_PARAMETERS=()
@@ -186,8 +216,152 @@ function parseargs-init() {
     PARSEARGS_EPILOG=""
     PARSEARGS_HELP=""
     PARSEARGS_ACTIVE_SUBCOMMAND=""
+    PARSEARGS_FROM_FUNCTION=""
 
     debug "Parser initialized"
+
+    # If from_function is specified, configure from docstring
+    if [[ -n "${from_function}" ]]; then
+        PARSEARGS_FROM_FUNCTION="${from_function}"
+        parseargs-configure-from-docstring "${from_function}"
+    fi
+}
+
+# @description Configure parseargs from a function's docstring
+# @usage parseargs-configure-from-docstring <function_name>
+function parseargs-configure-from-docstring() {
+    : 'Configure the argument parser from a function docstring
+
+        @usage
+            parseargs-configure-from-docstring <function_name>
+
+        @arg <function_name>
+            The function whose docstring to parse
+
+        @return 0
+            Successfully configured
+
+        @return 1
+            Function not found or no docstring
+
+        @return 2
+            docs.sh not available
+    '
+    local func_name="$1"
+
+    # Check if docs.sh functions are available
+    if ! type -t generate-function-docstring >/dev/null 2>&1; then
+        debug "docs.sh not available, cannot configure from docstring"
+        return 2
+    fi
+
+    # Extract docstring information
+    local -A DOCSTRING
+    local docstring_output
+    docstring_output=$(generate-function-docstring "${func_name}" 2>/dev/null)
+    [[ $? -ne 0 ]] && return 1
+
+    eval "${docstring_output}"
+
+    # Set program name from function name
+    parseargs-set-prog-name "${func_name}"
+
+    # Set help text from summary/description
+    local help_text=""
+    [[ -n "${DOCSTRING[summary]}" ]] && help_text="${DOCSTRING[summary]}"
+    [[ -n "${DOCSTRING[description]}" ]] && {
+        [[ -n "${help_text}" ]] && help_text+=$'\n\n'
+        help_text+="${DOCSTRING[description]}"
+    }
+    [[ -n "${help_text}" ]] && parseargs-set-help "${help_text}"
+
+    # Set usage if available
+    [[ -n "${DOCSTRING[usage]}" ]] && parseargs-set-usage "${DOCSTRING[usage]}"
+
+    # Parse options
+    if [[ -n "${DOCSTRING[option]}" ]]; then
+        # Handle multiple options separated by Record Separator
+        IFS=$'\x1e' read -ra options <<< "${DOCSTRING[option]}"
+        for option in "${options[@]}"; do
+            local opt_spec opt_desc
+            if [[ "$option" =~ $'\x1f' ]]; then
+                # Split by Unit Separator
+                IFS=$'\x1f' read -r opt_spec opt_desc <<< "$option"
+            else
+                # Try to split by colon or multiple spaces
+                if [[ "$option" =~ ^([^:]+):(.*)$ ]]; then
+                    opt_spec="${BASH_REMATCH[1]}"
+                    opt_desc="${BASH_REMATCH[2]}"
+                elif [[ "$option" =~ ^([^ ]+)[[:space:]]{2,}(.*)$ ]]; then
+                    opt_spec="${BASH_REMATCH[1]}"
+                    opt_desc="${BASH_REMATCH[2]}"
+                else
+                    opt_spec="$option"
+                    opt_desc=""
+                fi
+            fi
+
+            # Clean up the option spec and description
+            opt_spec="${opt_spec#"${opt_spec%%[![:space:]]*}"}"
+            opt_spec="${opt_spec%"${opt_spec##*[![:space:]]}"}"
+            opt_desc="${opt_desc#"${opt_desc%%[![:space:]]*}"}"
+            opt_desc="${opt_desc%"${opt_desc##*[![:space:]]}"}"
+
+            # Determine if it's a flag or parameter (has <value> or similar)
+            if [[ "${opt_spec}" =~ \<.*\> ]]; then
+                # It's a parameter - extract the option name
+                local opt_name="${opt_spec%% *}"
+                parseargs-add-parameter "${opt_name}" --help "${opt_desc}"
+            else
+                # It's a flag
+                parseargs-add-flag "${opt_spec}" --help "${opt_desc}"
+            fi
+        done
+    fi
+
+    # Parse positional arguments
+    local arg_position=0
+    for key in arg optarg; do
+        if [[ -n "${DOCSTRING[$key]}" ]]; then
+            # Handle multiple args separated by Record Separator
+            IFS=$'\x1e' read -ra args <<< "${DOCSTRING[$key]}"
+            for arg in "${args[@]}"; do
+                local arg_name arg_desc
+                if [[ "$arg" =~ $'\x1f' ]]; then
+                    # Split by Unit Separator
+                    IFS=$'\x1f' read -r arg_name arg_desc <<< "$arg"
+                else
+                    # Try to split by colon or multiple spaces
+                    if [[ "$arg" =~ ^([^:]+):(.*)$ ]]; then
+                        arg_name="${BASH_REMATCH[1]}"
+                        arg_desc="${BASH_REMATCH[2]}"
+                    elif [[ "$arg" =~ ^([^ ]+)[[:space:]]{2,}(.*)$ ]]; then
+                        arg_name="${BASH_REMATCH[1]}"
+                        arg_desc="${BASH_REMATCH[2]}"
+                    else
+                        arg_name="$arg"
+                        arg_desc=""
+                    fi
+                fi
+
+                # Clean up the argument name and description
+                arg_name="${arg_name#"${arg_name%%[![:space:]]*}"}"
+                arg_name="${arg_name%"${arg_name##*[![:space:]]}"}"
+                arg_name="${arg_name#<}"
+                arg_name="${arg_name%>}"
+                arg_desc="${arg_desc#"${arg_desc%%[![:space:]]*}"}"
+                arg_desc="${arg_desc%"${arg_desc##*[![:space:]]}"}"
+
+                # Add positional argument
+                local required=true
+                [[ "$key" == "optarg" ]] && required=false
+                parseargs-add-positional "${arg_name}" --help "${arg_desc}" ${required:+--required}
+                ((arg_position++))
+            done
+        fi
+    done
+
+    return 0
 }
 
 # @description Set the program name for the parser
@@ -584,9 +758,79 @@ function parseargs-validate-choices() {
 # @description Display help message
 # @usage parseargs-show-help
 function parseargs-show-help() {
+    : 'Display help message for the parser
+
+        @usage
+            parseargs-show-help [--from-docstring <function_name>]
+
+        @option --from-docstring <function_name>
+            Extract help from the specified function docstring
+
+        @stdout
+            Formatted help message
+
+        @return 0
+            Successfully displayed help
+
+        @return 1
+            Error displaying help
+    '
+    local from_docstring=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --from-docstring)
+                from_docstring="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
     local usage="${PARSEARGS_USAGE:-usage: ${PARSEARGS_PROG_NAME} [options]}"
     local help="${PARSEARGS_HELP}"
     local epilog="${PARSEARGS_EPILOG}"
+
+    # If from_docstring is specified, try to extract help using docs.sh
+    if [[ -n "${from_docstring}" ]]; then
+        # Check if docs-generate-help is available
+        if type -t docs-generate-help >/dev/null 2>&1; then
+            local docstring_help
+            docstring_help=$(docs-generate-help "${from_docstring}" --format plain 2>/dev/null)
+            if [[ $? -eq 0 && -n "${docstring_help}" ]]; then
+                # Extract parts from the docstring help
+                local in_usage=false
+                local in_options=false
+                local extracted_usage=""
+                local extracted_help=""
+
+                while IFS= read -r line; do
+                    if [[ "${line}" =~ ^Usage: ]]; then
+                        in_usage=true
+                        extracted_usage="${line}"
+                        continue
+                    elif [[ "${line}" =~ ^Options: ]]; then
+                        in_usage=false
+                        in_options=true
+                        continue
+                    elif [[ -z "${line}" ]]; then
+                        in_usage=false
+                        continue
+                    elif ! $in_options && ! $in_usage && [[ -n "${line}" ]]; then
+                        [[ -n "${extracted_help}" ]] && extracted_help+=$'\n'
+                        extracted_help+="${line}"
+                    fi
+                done <<< "${docstring_help}"
+
+                # Override with extracted values if found
+                [[ -n "${extracted_usage}" ]] && usage="${extracted_usage}"
+                [[ -n "${extracted_help}" ]] && help="${extracted_help}"
+            fi
+        fi
+    fi
 
     # Print usage
     echo "${usage}"
@@ -779,7 +1023,12 @@ function parseargs-parse() {
 
         # Handle --help global flag
         if [[ "${arg}" == "-h" || "${arg}" == "--help" ]]; then
-            parseargs-show-help
+            # Check if PARSEARGS_FROM_FUNCTION is set (for docstring extraction)
+            if [[ -n "${PARSEARGS_FROM_FUNCTION}" ]]; then
+                parseargs-show-help --from-docstring "${PARSEARGS_FROM_FUNCTION}"
+            else
+                parseargs-show-help
+            fi
             return ${E_HELP_DISPLAYED}
         fi
 
@@ -1037,6 +1286,7 @@ function parseargs-parse() {
 # If this file is being sourced, export the functions
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f parseargs-init
+    export -f parseargs-configure-from-docstring
     export -f parseargs-set-prog-name
     export -f parseargs-set-usage
     export -f parseargs-set-epilog

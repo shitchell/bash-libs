@@ -197,6 +197,7 @@ function get-clipboard() {
                 ;;
             -c | --csv)
                 format="text"
+                text_format="CommaSeparatedValue"
                 shift 1
                 ;;
             -p | --pandoc)

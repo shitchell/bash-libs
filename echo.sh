@@ -66,6 +66,9 @@ function echo-formatted() {
         @stdout
             The formatted text
     '
+    # Ensure colors are set up
+    setup-colors
+
     local code_r="${C_RED}"
     local code_g="${C_GREEN}"
     local code_y="${C_YELLOW}"
@@ -227,11 +230,14 @@ function echo-run() {
     local cmd=("${@}")
     local exit_code
 
+    # Ensure colors are set up
+    setup-colors
+
     # echo the command...
-    printf "\033[32m\u25b6 \033[1m%s\033[0m" "${cmd[0]}"
+    printf "${C_GREEN}\u25b6 ${S_BOLD}%s${S_RESET}" "${cmd[0]}"
     # ...if there is more than one argument, print them
     if [[ ${#cmd[@]} -gt 1 ]]; then
-        printf "\033[32m%s\033[0m" "$(printf " %q" "${cmd[@]:1}")"
+        printf "${C_GREEN}%s${S_RESET}" "$(printf " %q" "${cmd[@]:1}")"
     fi
     echo
 
@@ -240,12 +246,16 @@ function echo-run() {
         cmd=(eval "${cmd[0]}")
     fi
     # run the command, prepending each line of output with a vertical bar
-    "${cmd[@]}" 2>&1 | sed -e '$ ! s/^/\x1b[32m\xe2\x94\x82\x1b[0m / ; $ s/^/\x1b[32m\xe2\x95\xb0\x1b[0m /'
+    # Use awk instead of sed for better variable substitution
+    "${cmd[@]}" 2>&1 | awk -v green="$C_GREEN" -v reset="$S_RESET" \
+        'NR == 1 { prefix = green "│" reset }
+         { print prefix " " $0; prefix = green "│" reset }
+         END { if (NR > 0) print green "╰" reset " " }'
     exit_code=${PIPESTATUS[0]}
 
     # oh no errors
     if [[ ${exit_code} -ne 0 ]]; then
-        echo -e "\033[31mcommand exited with status ${exit_code}\033[0m"
+        echo "${C_RED}command exited with status ${exit_code}${S_RESET}"
     fi
 
     # return its exit code
@@ -738,6 +748,8 @@ function print-header() {
     fi
 
     ## Print the header text
+    # Ensure colors are set up for print-header
+    setup-colors
     echo "${S_BOLD}${header_text}${S_RESET}"
 
     ## Print the final border or underline

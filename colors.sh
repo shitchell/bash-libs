@@ -72,46 +72,59 @@ single code or a semicolon-separated list of codes. For example:
 # Determine if FD 1 (stdout) is a terminal (used for auto-loading)
 [ -t 1 ] && __IS_TTY=true || __IS_TTY=false
 
+# Cache flag to avoid repeated setup
+declare -g __COLORS_CACHED=""
+
 function setup-colors() {
-    export C_BLACK=$'\033[30m'
-    export C_RED=$'\033[31m'
-    export C_GREEN=$'\033[32m'
-    export C_YELLOW=$'\033[33m'
-    export C_BLUE=$'\033[34m'
-    export C_MAGENTA=$'\033[35m'
-    export C_CYAN=$'\033[36m'
-    export C_WHITE=$'\033[37m'
-    export C_RGB=$'\033[38;2;%d;%d;%dm'
-    export C_DEFAULT_FG=$'\033[39m'
-    export C_BLACK_BG=$'\033[40m'
-    export C_RED_BG=$'\033[41m'
-    export C_GREEN_BG=$'\033[42m'
-    export C_YELLOW_BG=$'\033[43m'
-    export C_BLUE_BG=$'\033[44m'
-    export C_MAGENTA_BG=$'\033[45m'
-    export C_CYAN_BG=$'\033[46m'
-    export C_WHITE_BG=$'\033[47m'
-    export C_RGB_BG=$'\033[48;2;%d;%d;%dm'
-    export C_DEFAULT_BG=$'\033[49m'
-    export S_RESET=$'\033[0m'
-    export S_BOLD=$'\033[1m'
-    export S_DIM=$'\033[2m'
-    export S_ITALIC=$'\033[3m'  # not widely supported, is sometimes "inverse"
-    export S_UNDERLINE=$'\033[4m'
-    export S_BLINK=$'\033[5m'  # slow blink
-    export S_BLINK_FAST=$'\033[6m'  # fast blink
-    export S_REVERSE=$'\033[7m'
-    export S_HIDDEN=$'\033[8m'  # not widely supported
-    export S_STRIKETHROUGH=$'\033[9m'  # not widely supported
-    export S_DEFAULT=$'\033[10m'
+    # Check if colors are already cached
+    if [[ -n "${__COLORS_CACHED}" ]]; then
+        return 0
+    fi
+
+    # Use declare -gx for batch export (slightly faster than individual exports)
+    declare -gx C_BLACK=$'\033[30m'
+    declare -gx C_RED=$'\033[31m'
+    declare -gx C_GREEN=$'\033[32m'
+    declare -gx C_YELLOW=$'\033[33m'
+    declare -gx C_BLUE=$'\033[34m'
+    declare -gx C_MAGENTA=$'\033[35m'
+    declare -gx C_CYAN=$'\033[36m'
+    declare -gx C_WHITE=$'\033[37m'
+    declare -gx C_RGB=$'\033[38;2;%d;%d;%dm'
+    declare -gx C_DEFAULT_FG=$'\033[39m'
+    declare -gx C_BLACK_BG=$'\033[40m'
+    declare -gx C_RED_BG=$'\033[41m'
+    declare -gx C_GREEN_BG=$'\033[42m'
+    declare -gx C_YELLOW_BG=$'\033[43m'
+    declare -gx C_BLUE_BG=$'\033[44m'
+    declare -gx C_MAGENTA_BG=$'\033[45m'
+    declare -gx C_CYAN_BG=$'\033[46m'
+    declare -gx C_WHITE_BG=$'\033[47m'
+    declare -gx C_RGB_BG=$'\033[48;2;%d;%d;%dm'
+    declare -gx C_DEFAULT_BG=$'\033[49m'
+    declare -gx S_RESET=$'\033[0m'
+    declare -gx S_BOLD=$'\033[1m'
+    declare -gx S_DIM=$'\033[2m'
+    declare -gx S_ITALIC=$'\033[3m'  # not widely supported, is sometimes "inverse"
+    declare -gx S_UNDERLINE=$'\033[4m'
+    declare -gx S_BLINK=$'\033[5m'  # slow blink
+    declare -gx S_BLINK_FAST=$'\033[6m'  # fast blink
+    declare -gx S_REVERSE=$'\033[7m'
+    declare -gx S_HIDDEN=$'\033[8m'  # not widely supported
+    declare -gx S_STRIKETHROUGH=$'\033[9m'  # not widely supported
+    declare -gx S_DEFAULT=$'\033[10m'
 
     # Loop to set up `C_(001-255)` and `C_(001-255)_BG` variables
+    # Using declare -gx for slightly better performance
     for i in {0..255}; do
         local varname="00${i}"
         varname="C_${varname: -3}"
-        export ${varname}=$'\033'"[38;5;${i}m"
-        export ${varname}_BG=$'\033'"[48;5;${i}m"
+        declare -gx ${varname}=$'\033'"[38;5;${i}m"
+        declare -gx ${varname}_BG=$'\033'"[48;5;${i}m"
     done
+
+    # Mark colors as cached
+    __COLORS_CACHED=1
 
     # If there is a `custom-colors()` function, run it
     if declare -F custom-colors &>/dev/null; then
@@ -120,6 +133,9 @@ function setup-colors() {
 }
 
 function unset-colors() {
+    # Clear cache flag first
+    __COLORS_CACHED=""
+
     local color_vars=(
         C_BLACK C_RED C_GREEN C_YELLOW C_BLUE C_MAGENTA C_CYAN C_WHITE
         C_RGB C_DEFAULT_FG C_BLACK_BG C_RED_BG C_GREEN_BG C_YELLOW_BG
@@ -144,7 +160,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # When sourcing the script, allow some options to be passed in
     # If the environment variable `COLORS_ENABLED` is set, check that it is set
     # to one of our accepted values. If so, use it for the default
-    if [[ "${ENABLE_COLORS}" =~ ^auto|true|always|yes|false|never|no$ ]]; then
+    if [[ "${ENABLE_COLORS:-}" =~ ^auto|true|always|yes|false|never|no$ ]]; then
         __load_colors="${ENABLE_COLORS}"
     else
         __load_colors="auto"

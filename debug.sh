@@ -13,6 +13,10 @@ TODO:
           library to interpret examples on separate lines.
 '
 
+# Load the colors library
+source "$(dirname "${BASH_SOURCE[0]}")/include.sh"
+include-source 'colors.sh'
+
 function debug() (
     # shellcheck disable=SC2016
     :  'Print debug information if either $DEBUG or $DEBUG_LOG are set
@@ -203,7 +207,8 @@ function debug() (
         fi
 
         # handle color and some formatting
-        if [[ "${DEBUG_COLOR}" =~ ^"false"|"0"$ ]]; then
+        if [[ "${DEBUG_COLOR}" =~ ^"false"|"0"$ ]] || [[ -z "${C_CYAN:-}" ]]; then
+            # No colors - either disabled or colors.sh not loaded
             # timestamp
             timestamp="[${timestamp}]"
 
@@ -218,31 +223,35 @@ function debug() (
             fi
             text_color_end=""
         else
+            # Use colors from colors.sh
             # timestamp
-            timestamp=$'\033[36m['"${timestamp}"$']\033[0m'
+            timestamp="${C_CYAN}[${timestamp}]${S_RESET}"
 
             # line description
-            [[ -n "${script_name}" ]] && line_loc+=$'\033[35m'"${script_name}"$'\033[0m'
-            [[ -n "${function_name}" ]] && line_loc+=$'\033[35;1m:'"${function_name}"$'()\033[0m'
-            [[ -n "${line_number}" ]] && line_loc+=$'\033[32m:'"${line_number}"$'\033[0m'
+            [[ -n "${script_name}" ]] && line_loc+="${C_MAGENTA}${script_name}${S_RESET}"
+            [[ -n "${function_name}" ]] && line_loc+="${C_MAGENTA}${S_BOLD}:${function_name}()${S_RESET}"
+            [[ -n "${line_number}" ]] && line_loc+="${C_GREEN}:${line_number}${S_RESET}"
 
             # handle specific categories of debug messages
             if [[ -n "${debug_label}" ]]; then
                 case "${debug_label}" in
                     err | error)
-                        text_color=$'\033[31;1m'
+                        text_color="${C_RED}${S_BOLD}"
                         ;;
                     wrn | warn)
-                        text_color=$'\033[33;1m'
+                        text_color="${C_YELLOW}${S_BOLD}"
                         ;;
                     inf | info)
-                        text_color=$'\033[36;1m'
+                        text_color="${C_BLUE}${S_BOLD}"
                         ;;
                     scs | success)
-                        text_color=$'\033[32;1m'
+                        text_color="${C_GREEN}${S_BOLD}"
+                        ;;
+                    dbg | debug)
+                        text_color="${C_WHITE}${S_DIM}"
                         ;;
                 esac
-                text_color_end=$'\033[0m'
+                text_color_end="${S_RESET}"
             fi
         fi
 
@@ -536,9 +545,15 @@ function debug-vars() {
                     fi
                 fi
             fi
-            printf "\033[1m%s\033[0m%s\x1e== %s\n" \
-                "${var_name}" "${var_info}" "${display_value}" \
-                | sed '2,$s/^/ \x1e.. /'
+            if [[ -n "${S_BOLD:-}" ]]; then
+                printf "${S_BOLD}%s${S_RESET}%s\x1e== %s\n" \
+                    "${var_name}" "${var_info}" "${display_value}" \
+                    | sed '2,$s/^/ \x1e.. /'
+            else
+                printf "\033[1m%s\033[0m%s\x1e== %s\n" \
+                    "${var_name}" "${var_info}" "${display_value}" \
+                    | sed '2,$s/^/ \x1e.. /'
+            fi
         done | column -t -s $'\x1e'
     )
     DEBUG_FUNCTION_NAME="${FUNCNAME[1]}" \
@@ -602,6 +617,7 @@ function _debug() (
                     }
                 }
                 {
+                    # Fallback to hardcoded colors for _debug function
                     print "\033[36m" "[" timestamp "]" "\033[0m " \
                         "\033[35;1m" funcname "\033[0m" \
                         "\033[32m:" lineno "\033[0m" \
@@ -619,6 +635,7 @@ function _mini_debug() (
     if [[ "${DEBUG}" == "1" || "${DEBUG}" == "true" || -n "${DEBUG_LOG}" ]]; then
         [[ -n "${DEBUG_LOG}" ]] && exec 3>>"${DEBUG_LOG}" || exec 3>&2
         timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+        # Fallback to hardcoded colors for _mini_debug function
         prefix="\033[36m[${timestamp}]\033[0m "
         prefix+="\033[35m$(basename "${BASH_SOURCE[-1]}")"
         [[ "${FUNCNAME[1]}" != "main" ]] && prefix+="\033[1m:${FUNCNAME[1]}()\033[0m"

@@ -197,52 +197,57 @@ function csv-split {
     declare -n __array="${__name}"
     __array=()
 
-    # Loop over the row character by character
+    # Optimized CSV parsing - process in chunks when possible
     local __in_quotes=false
     local __field=""
     local __char
     local __next_char
     local __row_chars=${#__row}
     debug-vars __row
-    for (( i=0; i<${__row_chars}; i++ )); do
-        __char="${__row:$i:1}"
-        __next_char="${__row:$((i+1)):1}"
 
-        # echo "i=${i} delim=${__delimiter}  in_q=${__in_quotes}  chr=${__char}  n_chr=${__next_char}  field=${__field}" >&2
+    # For simple cases without quotes, use faster IFS-based splitting
+    if [[ "${__row}" != *'"'* ]]; then
+        # No quotes, simple split
+        local IFS="${__delimiter}"
+        read -ra __array <<< "${__row}"
+        return 0
+    fi
 
-        # If the character is a quote, determine if we need to toggle the flag
-        # or add a quoted quote to the field
+    # Complex case with quotes - use optimized character loop
+    local __i=0
+    while (( __i < __row_chars )); do
+        __char="${__row:__i:1}"
+
+        # Handle quotes
         if [[ "${__char}" == '"' ]]; then
-            # If the quote comes before a quoted quote, then add a single quote
-            # to the field and skip past the next char (the quote)
-            if [[ "${__next_char}" == '"' ]]; then
+            if (( __i + 1 < __row_chars )) && [[ "${__row:__i+1:1}" == '"' ]]; then
+                # Double quote - add single quote
                 __field+='"'
-                ((i++))
+                ((__i += 2))
                 continue
             else
-                ${__in_quotes} && __in_quotes=false || __in_quotes=true
+                # Toggle quote state
+                __in_quotes=$(( ! __in_quotes ))
+                ((__i++))
+                continue
             fi
-            continue
         fi
 
-        # If the character is a delimiter and we're not in quotes, add the field
-        if [[ "${__char}" == "${__delimiter}" ]] && ! ${__in_quotes}; then
-            # Double check if we need to unquote the field
-            if [[ "${__field}" == '"'*'"' ]]; then
-                __field=$(csv-unquote "${__field}")
-            fi
+        # Handle delimiter
+        if [[ "${__char}" == "${__delimiter}" ]] && (( ! __in_quotes )); then
             __array+=("${__field}")
             __field=""
+            ((__i++))
             continue
         fi
 
+        # Regular character
         __field+="${__char}"
-
-        # Handle the last field
-        if ((i == __row_chars - 1 )); then
-            __array+=("${__field}")
-        fi
+        ((__i++))
     done
+
+    # Add the last field
+    __array+=("${__field}")
 
     return 0
 }
