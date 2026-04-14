@@ -4,6 +4,18 @@ This library provides functions that are specific to WSL.
 
 include-source 'debug'
 
+# Prefer PowerShell 7 (pwsh.exe) over Windows PowerShell (powershell.exe).
+# Why: Windows PowerShell's .NET Framework has a long-standing bug where
+# Clipboard.GetText(Html) decodes CF_HTML data as CP1252 instead of UTF-8
+# (the spec-mandated encoding). Rich text copied from Teams/Outlook/Word
+# that contains any non-ASCII character (smart quotes, ellipses, em-dashes)
+# arrives mojibaked. PowerShell 7 (.NET Core) reads CF_HTML correctly.
+if command -v pwsh.exe &>/dev/null; then
+    WSL_POWERSHELL="pwsh.exe"
+else
+    WSL_POWERSHELL="powershell.exe"
+fi
+
 function quote-powershell() {
     :  'Escape a string for use in a Powershell command with single quotes
 
@@ -85,9 +97,9 @@ function set-clipboard() {
 
     debug-vars do_append do_html do_verbose do_debug content quoted_content \
         cmd_args
-    debug "Running: powershell.exe -command \"Set-Clipboard -Value ${quoted_content} ${cmd_args[*]}\""
+    debug "Running: ${WSL_POWERSHELL} -command \"Set-Clipboard -Value ${quoted_content} ${cmd_args[*]}\""
 
-    powershell.exe \
+    "${WSL_POWERSHELL}" \
         -command "Set-Clipboard -Value ${quoted_content} ${cmd_args[*]}"
 }
 
@@ -289,9 +301,19 @@ function get-clipboard() {
     ${do_debug} && cmd_args+=( -Debug )
 
     debug-vars format text_format pandoc_format cmd_args
-    debug "Running: powershell.exe -command \"Get-Clipboard ${cmd_args[*]}\""
+    # Note: must use powershell.exe (Windows PowerShell / .NET Framework) here,
+    # not pwsh.exe — PowerShell 7's Get-Clipboard dropped -Format/-TextFormatType
+    # and exposes only -Raw. A future refactor could migrate reads to .NET's
+    # Clipboard class via Add-Type to work in both. The CP1252-as-UTF-8
+    # mojibake this produces on HTML reads is reversed by clip.exe's
+    # demojibake-cp1252-utf8 pipeline stage — but that only works if
+    # PowerShell writes the already-mangled string to stdout as UTF-8 rather
+    # than via the OEM codepage (which is lossy — U+20AC collapses to `?`
+    # under CP850). Force UTF-8 output so the demojibake has recoverable bytes.
+    local ps_cmd="[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard ${cmd_args[*]}"
+    debug "Running: powershell.exe -command \"${ps_cmd}\""
 
-    powershell.exe -command "Get-Clipboard ${cmd_args[*]}" |& {
+    powershell.exe -command "${ps_cmd}" |& {
         if [[ "${text_format}" == "Html" ]]; then
             # Exclude the Powershell header -- only start at the <html> tag
             awk '/<html>/,0'
