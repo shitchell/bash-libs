@@ -35,3 +35,29 @@ clip::_no_provider() {
   printf 'clip: no provider for %s:%s on this machine.\n' "$1" "$2" >&2
   [[ "$2" != plain ]] && printf 'clip: hint: install/enable a clip.<tag> that offers %s:%s (see sh/docs/plans/2026-06-29-unified-clipboard-design.md).\n' "$1" "$2" >&2
 }
+
+clip::real_binary() {
+  : 'Resolve the real system binary for NAME, excluding our own shims.
+      @arg $1 name
+      @arg $@ --need-binary  require a non-text file
+      @arg $@ --need-nonhome require a path outside $HOME
+      @stdout absolute path of the first matching candidate
+      @return 0 if found, 1 otherwise
+  '
+  local name="$1"; shift
+  local need_binary=false need_nonhome=false a
+  for a in "$@"; do
+    [[ "$a" == --need-binary ]] && need_binary=true
+    [[ "$a" == --need-nonhome ]] && need_nonhome=true
+  done
+  local c
+  while IFS= read -r c; do
+    [[ -x "$c" ]] || continue
+    if $need_nonhome; then case "$c" in "$HOME"/*) continue ;; esac; fi
+    if $need_binary; then
+      case "$(file -b --mime-type "$c" 2>/dev/null)" in text/*) continue ;; esac
+    fi
+    printf '%s\n' "$c"; return 0
+  done < <(type -af "$name" 2>/dev/null | awk '{print $NF}')
+  return 1
+}
