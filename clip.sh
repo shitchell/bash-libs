@@ -19,7 +19,7 @@ clip::dispatch() {
         score\ *) score="${line#score }" ;;
         caps\ *)  caps=" ${line#caps } " ;;
       esac
-    done < <("$p" probe 2>/dev/null)
+    done < <("$p" probe </dev/null 2>/dev/null)
     [[ "$score" =~ ^[0-9]+$ ]] || score=0
     if (( score > bestscore )) && [[ "$caps" == *" $want "* ]]; then
       best="$p"; bestscore="$score"
