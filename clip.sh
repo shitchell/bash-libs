@@ -4,14 +4,33 @@
 clip::_providers() { compgen -c 'clip.' 2>/dev/null | sort -u; }
 
 clip::dispatch() {
-  : 'Run the best provider for an op/type.
+  : 'Run the best capable provider for an op/type, with timeout + fallback.
+
+      Every backend here can occasionally stall, so each provider invocation is
+      wrapped in `timeout` (CLIP_TIMEOUT seconds, default 5). If the chosen
+      provider times out (exit 124) or exits non-zero, the dispatcher falls back
+      to the next-highest-scoring capable provider, until one succeeds or none
+      remain. If all fail, the friendly no-provider error is printed and 3 is
+      returned.
+
+      On `set`, stdin is consumed only once, so the payload is buffered up front
+      and replayed to every fallback attempt. On `get`, the provider stdout is
+      captured and emitted only if the provider succeeded, so a partial/failed
+      provider never leaks garbage before we fall back.
+
       @arg $1 op  (get|set)
       @arg $2 type (plain|rich|image)
+      @env CLIP_TIMEOUT per-provider timeout in seconds (default 5)
       @stdin  content (for set)
       @stdout clipboard content (for get)
+      @return 0 on success, 3 if no capable provider succeeds
   '
   local op="$1" type="$2"; shift 2
-  local want="$op:$type" best="" bestscore=0 p score caps line
+  local want="$op:$type" timeout_s="${CLIP_TIMEOUT:-5}"
+  local p score caps line
+
+  # Collect capable providers as "score<TAB>path", then order by score desc.
+  local -a candidates=()
   while IFS= read -r p; do
     score=0 caps=""
     while IFS= read -r line; do
@@ -21,14 +40,38 @@ clip::dispatch() {
       esac
     done < <("$p" probe </dev/null 2>/dev/null)
     [[ "$score" =~ ^[0-9]+$ ]] || score=0
-    if (( score > bestscore )) && [[ "$caps" == *" $want "* ]]; then
-      best="$p"; bestscore="$score"
+    if (( score > 0 )) && [[ "$caps" == *" $want "* ]]; then
+      candidates+=("$(printf '%d\t%s' "$score" "$p")")
     fi
   done < <(clip::_providers)
-  if [[ -z "$best" ]]; then
+
+  if (( ${#candidates[@]} == 0 )); then
     clip::_no_provider "$op" "$type"; return 3
   fi
-  "$best" "$op" "$type" "$@"
+
+  # Buffer stdin once for `set` so every fallback attempt gets the full payload.
+  local stdin_buf=""
+  if [[ "$op" == set ]]; then
+    stdin_buf="$(cat)"
+  fi
+
+  # Try candidates highest-score first; first success wins.
+  local entry best out rc
+  while IFS= read -r entry; do
+    best="${entry#*$'\t'}"
+    if [[ "$op" == set ]]; then
+      printf '%s' "$stdin_buf" | timeout "$timeout_s" "$best" "$op" "$type" "$@"
+      rc=$?
+    else
+      # Capture stdout; emit only on success so a failed provider can't leak it.
+      out="$(timeout "$timeout_s" "$best" "$op" "$type" "$@" </dev/null)"
+      rc=$?
+      (( rc == 0 )) && printf '%s' "$out"
+    fi
+    (( rc == 0 )) && return 0
+  done < <(printf '%s\n' "${candidates[@]}" | sort -t$'\t' -k1,1nr)
+
+  clip::_no_provider "$op" "$type"; return 3
 }
 
 clip::_no_provider() {
