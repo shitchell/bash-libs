@@ -50,27 +50,35 @@ clip::dispatch() {
   fi
 
   # Buffer stdin once for `set` so every fallback attempt gets the full payload.
-  local stdin_buf=""
+  # Use a temp FILE, not a shell variable: bash variables silently drop NUL
+  # bytes and trailing newlines, which corrupts binary payloads (e.g. a
+  # set:image PNG). A file preserves the bytes exactly. Same for capturing a
+  # get's stdout below.
+  local stdin_file="" out_file rc=3 entry best
   if [[ "$op" == set ]]; then
-    stdin_buf="$(cat)"
+    stdin_file="$(mktemp)"; cat > "$stdin_file"
   fi
+  out_file="$(mktemp)"
 
   # Try candidates highest-score first; first success wins.
-  local entry best out rc
   while IFS= read -r entry; do
     best="${entry#*$'\t'}"
     if [[ "$op" == set ]]; then
-      printf '%s' "$stdin_buf" | timeout "$timeout_s" "$best" "$op" "$type" "$@"
+      timeout "$timeout_s" "$best" "$op" "$type" "$@" < "$stdin_file"
       rc=$?
     else
-      # Capture stdout; emit only on success so a failed provider can't leak it.
-      out="$(timeout "$timeout_s" "$best" "$op" "$type" "$@" </dev/null)"
+      # Capture stdout to a file (binary-safe); emit only on success so a failed
+      # provider can't leak a partial read before we fall back.
+      timeout "$timeout_s" "$best" "$op" "$type" "$@" </dev/null > "$out_file"
       rc=$?
-      (( rc == 0 )) && printf '%s' "$out"
+      (( rc == 0 )) && cat "$out_file"
     fi
-    (( rc == 0 )) && return 0
+    (( rc == 0 )) && break
   done < <(printf '%s\n' "${candidates[@]}" | sort -t$'\t' -k1,1nr)
 
+  [[ -n "$stdin_file" ]] && rm -f "$stdin_file"
+  rm -f "$out_file"
+  (( rc == 0 )) && return 0
   clip::_no_provider "$op" "$type"; return 3
 }
 
