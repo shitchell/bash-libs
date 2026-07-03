@@ -284,6 +284,35 @@ assert_equal() {
 }
 
 
+## --repeat parameters #########################################################
+# Repeatable value options (-m a -m b) accumulate into a global indexed
+# array named by --store; PARSEARGS_OPTS[store] holds the last value.
+
+@test "--repeat parameters accumulate into the store-named array" {
+  parseargs-add-parameter "-m/--mimetype" --repeat --store MIMETYPES
+  parseargs-parse -m text/plain --mimetype image/png -m 'text/*'
+  assert_equal "3" "${#MIMETYPES[@]}"
+  assert_equal "text/plain" "${MIMETYPES[0]}"
+  assert_equal "image/png" "${MIMETYPES[1]}"
+  assert_equal "text/*" "${MIMETYPES[2]}"
+  assert_equal "text/*" "${PARSEARGS_OPTS[MIMETYPES]}"
+}
+
+@test "--repeat arrays reset between parses" {
+  parseargs-add-parameter "-m/--mimetype" --repeat --store MIMETYPES
+  parseargs-parse -m one
+  parseargs-parse -m two
+  assert_equal "1" "${#MIMETYPES[@]}"
+  assert_equal "two" "${MIMETYPES[0]}"
+}
+
+@test "an unused --repeat parameter leaves an empty array" {
+  parseargs-add-parameter "-m/--mimetype" --repeat --store MIMETYPES
+  parseargs-parse
+  assert_equal "0" "${#MIMETYPES[@]}"
+}
+
+
 ## real-debug integration ######################################################
 # The suite neutralizes debug() after sourcing, which masks a class of bug:
 # the real debug.sh debug() returns 1 when DEBUG is unset, so any lib

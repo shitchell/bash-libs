@@ -489,7 +489,7 @@ function parseargs--drop-option() {
             unset "PARSEARGS_FLAGS[${key}:${field}]"
         done
     else
-        for field in short long required default store help subcommand flag nargs choices type; do
+        for field in short long required default store help subcommand flag nargs choices type repeat; do
             unset "PARSEARGS_PARAMETERS[${key}:${field}]"
         done
     fi
@@ -645,6 +645,7 @@ function parseargs-add-parameter() {
     local nargs=1
     local choices=""
     local type="string"
+    local repeat=false
     shift 1
 
     # Parse the parameter specification
@@ -693,6 +694,10 @@ function parseargs-add-parameter() {
                 choices="${2}"
                 shift 2
                 ;;
+            --repeat)
+                repeat=true
+                shift 1
+                ;;
             --type)
                 type="${2}"
                 shift 2
@@ -730,6 +735,7 @@ function parseargs-add-parameter() {
     PARSEARGS_PARAMETERS["${key}:nargs"]="${nargs}"
     PARSEARGS_PARAMETERS["${key}:choices"]="${choices}"
     PARSEARGS_PARAMETERS["${key}:type"]="${type}"
+    PARSEARGS_PARAMETERS["${key}:repeat"]="${repeat}"
     PARSEARGS_OPTION_ORDER+=("param:${key}")
 
     debug "Added parameter '${key}' (${short_name:-n/a}/${long_name:-n/a})"
@@ -1168,6 +1174,14 @@ function parseargs-parse() {
     # script claimed those names for itself
     parseargs--register-builtins
 
+    # Reset --repeat parameter arrays. This happens before config sourcing
+    # so a config file may append to them
+    for key in $(printf "%s\n" "${!PARSEARGS_PARAMETERS[@]}" | grep ":repeat$"); do
+        if [[ "${PARSEARGS_PARAMETERS[${key}]}" == "true" ]]; then
+            declare -ga "${PARSEARGS_PARAMETERS[${key%:repeat}:store]}=()"
+        fi
+    done
+
     # If the config preset is active, source the config file before applying
     # defaults so its values participate in default resolution
     local __use_env=false
@@ -1210,6 +1224,9 @@ function parseargs-parse() {
         local base_key="${key%:store}"
         local store="${PARSEARGS_PARAMETERS["${key}"]}"
         local default="${PARSEARGS_PARAMETERS["${base_key}:default"]}"
+
+        # Repeat parameters use their (already reset) arrays, not defaults
+        [[ "${PARSEARGS_PARAMETERS["${base_key}:repeat"]}" == "true" ]] && continue
 
         if ${__use_env} && [[ -n "${!store+x}" ]]; then
             PARSEARGS_OPTS["${store}"]="${!store}"
@@ -1378,6 +1395,9 @@ function parseargs-parse() {
                         return ${E_INVALID_VALUE}
                     fi
 
+                    if [[ "${PARSEARGS_PARAMETERS["${base_key}:repeat"]}" == "true" ]]; then
+                        eval "${store}+=(\"\${val}\")"
+                    fi
                     PARSEARGS_OPTS["${store}"]="${val}"
                     found=true
                     shift 2
@@ -1458,6 +1478,9 @@ function parseargs-parse() {
                         return ${E_INVALID_VALUE}
                     fi
 
+                    if [[ "${PARSEARGS_PARAMETERS["${base_key}:repeat"]}" == "true" ]]; then
+                        eval "${store}+=(\"\${val}\")"
+                    fi
                     PARSEARGS_OPTS["${store}"]="${val}"
                     found=true
                     shift 2
