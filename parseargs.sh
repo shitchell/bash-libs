@@ -163,7 +163,7 @@ declare -gA PARSEARGS_POSITIONALS=()
 declare -gA PARSEARGS_SUBCOMMANDS=()
 declare -gA PARSEARGS_OPTS=()
 declare -ga PARSEARGS_POSARGS=()
-declare -g PARSEARGS_PROG_NAME=""
+declare -g PARSEARGS_PROG_NAME="$(basename "${0}")"
 declare -g PARSEARGS_USAGE=""
 declare -g PARSEARGS_EPILOG=""
 declare -g PARSEARGS_HELP=""
@@ -425,6 +425,9 @@ function parseargs-add-subcommand() {
     PARSEARGS_SUBCOMMANDS["${name}:help"]="${help}"
 
     debug "Added subcommand '${name}'"
+
+    # Explicit success: debug returns 1 when DEBUG is unset
+    return ${E_SUCCESS:-0}
 }
 
 # @description Parse a short_name/long_name format string into short and long names
@@ -616,6 +619,9 @@ function parseargs-add-flag() {
     fi
 
     debug "Added flag '${key}' (${short_name:-n/a}/${long_name:-n/a})"
+
+    # Explicit success: debug returns 1 when DEBUG is unset
+    return ${E_SUCCESS:-0}
 }
 
 # @description Add a parameter option to the parser
@@ -721,6 +727,9 @@ function parseargs-add-parameter() {
     PARSEARGS_OPTION_ORDER+=("param:${key}")
 
     debug "Added parameter '${key}' (${short_name:-n/a}/${long_name:-n/a})"
+
+    # Explicit success: debug returns 1 when DEBUG is unset
+    return ${E_SUCCESS:-0}
 }
 
 # @description Add a positional argument to the parser
@@ -793,6 +802,9 @@ function parseargs-add-positional() {
     PARSEARGS_POSITIONALS["${position}:type"]="${type}"
 
     debug "Added positional argument '${name}' at position ${position}"
+
+    # Explicit success: debug returns 1 when DEBUG is unset
+    return ${E_SUCCESS:-0}
 }
 
 # @description Validate a value against a type
@@ -986,7 +998,7 @@ function parseargs-show-help() {
             # Skip if belongs to a subcommand and we're not in that subcommand context
             [[ -n "${subcommand}" && "${subcommand}" != "${PARSEARGS_ACTIVE_SUBCOMMAND}" ]] && continue
 
-            printf "  %-20s  %s\n" "${short:+${short},}${long}${suffix}" "${opt_help}"
+            printf "  %-20s  %s\n" "${short:+${short}${long:+/}}${long}${suffix}" "${opt_help}"
         done
 
         echo

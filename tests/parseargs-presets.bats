@@ -253,6 +253,37 @@ assert_equal() {
 }
 
 
+## real-debug integration ######################################################
+# The suite neutralizes debug() after sourcing, which masks a class of bug:
+# the real debug.sh debug() returns 1 when DEBUG is unset, so any lib
+# function that ENDS with a debug call spuriously reports failure. These
+# tests run in a fresh bash with the real debug.
+
+@test "add-parameter returns 0 on success under the real debug.sh" {
+  run bash -c '
+    source "'"$LIB_DIR"'/include.sh"
+    include-source parseargs.sh
+    parseargs-init
+    parseargs-add-parameter "-q/--quux"
+  '
+  assert_equal 0 "$status"
+}
+
+@test "parseargs-include colors config registers both in a fresh shell" {
+  run bash -c '
+    source "'"$LIB_DIR"'/include.sh"
+    include-source parseargs.sh
+    parseargs-init
+    parseargs-include colors config || exit ${?}
+    [[ "${PARSEARGS_PARAMETERS[color:long]}" == "--color" ]] || exit 81
+    [[ "${PARSEARGS_PARAMETERS[config-file:long]}" == "--config-file" ]] || exit 82
+    [[ "${PARSEARGS_INCLUDES}" == *"colors "* ]] || exit 83
+    [[ "${PARSEARGS_INCLUDES}" == *"config "* ]] || exit 84
+  '
+  assert_equal 0 "$status"
+}
+
+
 ## show-help fixes #############################################################
 
 @test "non-required positionals are not marked with *" {
