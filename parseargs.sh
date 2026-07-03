@@ -169,6 +169,10 @@ declare -g PARSEARGS_EPILOG=""
 declare -g PARSEARGS_HELP=""
 declare -g PARSEARGS_ACTIVE_SUBCOMMAND=""
 declare -g PARSEARGS_FROM_FUNCTION=""
+declare -g PARSEARGS_INCLUDES=""
+declare -ga PARSEARGS_OPTION_ORDER=()
+declare -g PARSEARGS_BUILTIN_KEYS=" "
+declare -g PARSEARGS_BUILTINS_REGISTERED=false
 
 # @description Initialize the parser
 # @usage parseargs-init
@@ -217,6 +221,10 @@ function parseargs-init() {
     PARSEARGS_HELP=""
     PARSEARGS_ACTIVE_SUBCOMMAND=""
     PARSEARGS_FROM_FUNCTION=""
+    PARSEARGS_INCLUDES=""
+    declare -ga PARSEARGS_OPTION_ORDER=()
+    PARSEARGS_BUILTIN_KEYS=" "
+    PARSEARGS_BUILTINS_REGISTERED=false
 
     debug "Parser initialized"
 
@@ -446,9 +454,82 @@ function parseargs-parse-flag-names() {
     echo "${short_name},${long_name}"
 }
 
+# @description Find the registered option claiming a name, e.g. -s or --silent
+# @usage parseargs--find-key-by-name <name>
+# @stdout "flag:<key>" or "param:<key>" if the name is claimed
+function parseargs--find-key-by-name() {
+    local name="${1}"
+    local key
+    [[ -z "${name}" ]] && return 1
+    for key in "${!PARSEARGS_FLAGS[@]}"; do
+        [[ "${key}" == *:short || "${key}" == *:long ]] || continue
+        [[ "${PARSEARGS_FLAGS[${key}]}" == "${name}" ]] \
+            && { echo "flag:${key%:*}"; return 0; }
+    done
+    for key in "${!PARSEARGS_PARAMETERS[@]}"; do
+        [[ "${key}" == *:short || "${key}" == *:long ]] || continue
+        [[ "${PARSEARGS_PARAMETERS[${key}]}" == "${name}" ]] \
+            && { echo "param:${key%:*}"; return 0; }
+    done
+    return 1
+}
+
+# @description Remove a registered option entirely (both names, all fields)
+# @usage parseargs--drop-option <flag:key | param:key>
+function parseargs--drop-option() {
+    local entry="${1}"
+    local type="${entry%%:*}" key="${entry#*:}"
+    local field
+
+    if [[ "${type}" == "flag" ]]; then
+        for field in short long required default store help subcommand count; do
+            unset "PARSEARGS_FLAGS[${key}:${field}]"
+        done
+    else
+        for field in short long required default store help subcommand flag nargs choices type; do
+            unset "PARSEARGS_PARAMETERS[${key}:${field}]"
+        done
+    fi
+
+    # Remove from the declaration order and the built-in registry
+    local -a __order=()
+    local o
+    for o in "${PARSEARGS_OPTION_ORDER[@]}"; do
+        [[ "${o}" == "${entry}" ]] || __order+=("${o}")
+    done
+    PARSEARGS_OPTION_ORDER=("${__order[@]}")
+    PARSEARGS_BUILTIN_KEYS="${PARSEARGS_BUILTIN_KEYS/ ${entry} / }"
+}
+
+# @description Guard a new option's names: -h/--help are reserved; claiming a
+#   built-in's name drops the built-in; claiming a user option's name errors
+# @usage parseargs--guard-option-names <short_name> <long_name>
+function parseargs--guard-option-names() {
+    local short_name="${1}" long_name="${2}"
+    local name claimed
+
+    if [[ "${short_name}" == "-h" || "${long_name}" == "--help" ]]; then
+        echo "Error: -h/--help is reserved" >&2
+        return ${E_INVALID_OPTION:-13}
+    fi
+
+    for name in "${short_name}" "${long_name}"; do
+        [[ -z "${name}" ]] && continue
+        if claimed=$(parseargs--find-key-by-name "${name}"); then
+            if [[ "${PARSEARGS_BUILTIN_KEYS}" == *" ${claimed} "* ]]; then
+                # User options win over built-ins: drop the whole built-in
+                parseargs--drop-option "${claimed}"
+            else
+                echo "Error: option ${name} already defined" >&2
+                return ${E_INVALID_OPTION:-13}
+            fi
+        fi
+    done
+}
+
 # @description Add a flag option to the parser
 # @usage parseargs-add-flag <short_name/long_name> [-r|--required] [-d|--default <value>]
-#          [-s|--store <var_name>] [-C|--subcommand <name>] [-h|--help <text>]
+#          [-s|--store <var_name>] [-C|--subcommand <name>] [--count] [-h|--help <text>]
 function parseargs-add-flag() {
     local flag_spec="${1}"
     local required=false
@@ -456,6 +537,7 @@ function parseargs-add-flag() {
     local store=""
     local help=""
     local subcommand=""
+    local count=false
     shift 1
 
     # Parse the flag specification
@@ -463,6 +545,9 @@ function parseargs-add-flag() {
     flag_names=$(parseargs-parse-flag-names "${flag_spec}")
     local short_name long_name
     IFS=',' read -r short_name long_name <<<"${flag_names}"
+
+    # Reject reserved names, handle collisions
+    parseargs--guard-option-names "${short_name}" "${long_name}" || return ${?}
 
     # Extract the long name without the '--' prefix for use as the storage variable
     local long_name_clean=""
@@ -488,6 +573,10 @@ function parseargs-add-flag() {
             -C | --subcommand)
                 subcommand="${2}"
                 shift 2
+                ;;
+            --count)
+                count=true
+                shift 1
                 ;;
             -h | --help)
                 help="${2}"
@@ -518,6 +607,8 @@ function parseargs-add-flag() {
     PARSEARGS_FLAGS["${key}:store"]="${store}"
     PARSEARGS_FLAGS["${key}:help"]="${help}"
     PARSEARGS_FLAGS["${key}:subcommand"]="${subcommand}"
+    PARSEARGS_FLAGS["${key}:count"]="${count}"
+    PARSEARGS_OPTION_ORDER+=("flag:${key}")
 
     # Also store in the base key for direct access in tests
     if [[ -n "${subcommand}" ]]; then
@@ -549,6 +640,9 @@ function parseargs-add-parameter() {
     param_names=$(parseargs-parse-flag-names "${param_spec}")
     local short_name long_name
     IFS=',' read -r short_name long_name <<<"${param_names}"
+
+    # Reject reserved names, handle collisions
+    parseargs--guard-option-names "${short_name}" "${long_name}" || return ${?}
 
     # Extract the long name without the '--' prefix for use as the storage variable
     local long_name_clean=""
@@ -624,6 +718,7 @@ function parseargs-add-parameter() {
     PARSEARGS_PARAMETERS["${key}:nargs"]="${nargs}"
     PARSEARGS_PARAMETERS["${key}:choices"]="${choices}"
     PARSEARGS_PARAMETERS["${key}:type"]="${type}"
+    PARSEARGS_OPTION_ORDER+=("param:${key}")
 
     debug "Added parameter '${key}' (${short_name:-n/a}/${long_name:-n/a})"
 }
@@ -648,6 +743,10 @@ function parseargs-add-positional() {
         case "${1}" in
             -r | --required)
                 required=true
+                shift 1
+                ;;
+            -o | --optional)
+                required=false
                 shift 1
                 ;;
             -d | --default)
@@ -790,6 +889,9 @@ function parseargs-show-help() {
         esac
     done
 
+    # Materialize built-ins so they appear in the listing
+    parseargs--register-builtins
+
     local usage="${PARSEARGS_USAGE:-usage: ${PARSEARGS_PROG_NAME} [options]}"
     local help="${PARSEARGS_HELP}"
     local epilog="${PARSEARGS_EPILOG}"
@@ -861,32 +963,30 @@ function parseargs-show-help() {
     if ${has_options}; then
         echo "options:"
 
-        # Print flags
-        for key in $(printf "%s\n" "${!PARSEARGS_FLAGS[@]}" | grep ":short$" | sort); do
-            local base_key="${key%:short}"
-            local short="${PARSEARGS_FLAGS["${base_key}:short"]}"
-            local long="${PARSEARGS_FLAGS["${base_key}:long"]}"
-            local help="${PARSEARGS_FLAGS["${base_key}:help"]}"
-            local subcommand="${PARSEARGS_FLAGS["${base_key}:subcommand"]}"
+        # Print options in declaration order
+        local entry entry_type base_key short long opt_help subcommand suffix
+        for entry in "${PARSEARGS_OPTION_ORDER[@]}"; do
+            entry_type="${entry%%:*}"
+            base_key="${entry#*:}"
+
+            if [[ "${entry_type}" == "flag" ]]; then
+                short="${PARSEARGS_FLAGS["${base_key}:short"]}"
+                long="${PARSEARGS_FLAGS["${base_key}:long"]}"
+                opt_help="${PARSEARGS_FLAGS["${base_key}:help"]}"
+                subcommand="${PARSEARGS_FLAGS["${base_key}:subcommand"]}"
+                suffix=""
+            else
+                short="${PARSEARGS_PARAMETERS["${base_key}:short"]}"
+                long="${PARSEARGS_PARAMETERS["${base_key}:long"]}"
+                opt_help="${PARSEARGS_PARAMETERS["${base_key}:help"]}"
+                subcommand="${PARSEARGS_PARAMETERS["${base_key}:subcommand"]}"
+                suffix=" <value>"
+            fi
 
             # Skip if belongs to a subcommand and we're not in that subcommand context
             [[ -n "${subcommand}" && "${subcommand}" != "${PARSEARGS_ACTIVE_SUBCOMMAND}" ]] && continue
 
-            printf "  %-20s  %s\n" "${short:+${short},}${long}" "${help}"
-        done
-
-        # Print parameters
-        for key in $(printf "%s\n" "${!PARSEARGS_PARAMETERS[@]}" | grep ":short$" | sort); do
-            local base_key="${key%:short}"
-            local short="${PARSEARGS_PARAMETERS["${base_key}:short"]}"
-            local long="${PARSEARGS_PARAMETERS["${base_key}:long"]}"
-            local help="${PARSEARGS_PARAMETERS["${base_key}:help"]}"
-            local subcommand="${PARSEARGS_PARAMETERS["${base_key}:subcommand"]}"
-
-            # Skip if belongs to a subcommand and we're not in that subcommand context
-            [[ -n "${subcommand}" && "${subcommand}" != "${PARSEARGS_ACTIVE_SUBCOMMAND}" ]] && continue
-
-            printf "  %-20s  %s\n" "${short:+${short},}${long} <value>" "${help}"
+            printf "  %-20s  %s\n" "${short:+${short},}${long}${suffix}" "${opt_help}"
         done
 
         echo
@@ -909,8 +1009,11 @@ function parseargs-show-help() {
             local name="${PARSEARGS_POSITIONALS["${position}:name"]}"
             local help="${PARSEARGS_POSITIONALS["${position}:help"]}"
             local required="${PARSEARGS_POSITIONALS["${position}:required"]}"
+            local req_marker=""
 
-            printf "  %-20s  %s\n" "${name}${required:+*}" "${help}"
+            # ${required:+*} would mark even required=false (non-empty string)
+            [[ "${required}" == "true" ]] && req_marker="*"
+            printf "  %-20s  %s\n" "${name}${req_marker}" "${help}"
         done
 
         echo
@@ -945,12 +1048,97 @@ function parseargs-show-help() {
     fi
 }
 
+# @description Materialize the built-in options unless the script claimed
+#   their names for itself. Built-ins are "standard-but-unprotected":
+#   registered lazily at parse/help time so user definitions naturally win.
+# @usage parseargs--register-builtins
+function parseargs--register-builtins() {
+    [[ "${PARSEARGS_BUILTINS_REGISTERED}" == "true" ]] && return 0
+    PARSEARGS_BUILTINS_REGISTERED=true
+
+    if ! parseargs--find-key-by-name "-s" >/dev/null \
+        && ! parseargs--find-key-by-name "--silent" >/dev/null; then
+        parseargs-add-flag "-s/--silent" --store DO_SILENT \
+            --help "suppress all output"
+        PARSEARGS_BUILTIN_KEYS+="flag:silent "
+    fi
+
+    if ! parseargs--find-key-by-name "-v" >/dev/null \
+        && ! parseargs--find-key-by-name "--verbose" >/dev/null; then
+        parseargs-add-flag "-v/--verbose" --count --store VERBOSE \
+            --help "increase output verbosity"
+        PARSEARGS_BUILTIN_KEYS+="flag:verbose "
+    fi
+}
+
+# @description Activate optional presets that register standard options and
+#   parse-time behavior. Explicitly opt-in (never activated by imports).
+# @usage parseargs-include <colors|config> [...]
+#
+#   colors: registers -c/--color <auto|always|never> (store: COLOR). At parse
+#           time, resolves DO_COLOR from the mode and stdout's tty-ness, then
+#           calls setup-colors/unset-colors.
+#   config: registers --config-file <file> (store: CONFIG_FILE, default:
+#           ~/.<prog>.conf). At parse time, sources the config file BEFORE
+#           applying defaults, so precedence is CLI > config > env > default.
+function parseargs-include() {
+    local preset
+    for preset in "${@}"; do
+        case "${preset}" in
+            colors)
+                declare -F setup-colors &>/dev/null || include-source 'colors.sh'
+                parseargs-add-parameter "-c/--color" --store COLOR \
+                    --default "auto" --choices "auto,always,never" \
+                    --help "when to use color (auto, always, never)" \
+                    || return ${?}
+                PARSEARGS_INCLUDES+="colors "
+                ;;
+            config)
+                parseargs-add-parameter "--config-file" --store CONFIG_FILE \
+                    --help "use the specified configuration file" \
+                    || return ${?}
+                PARSEARGS_INCLUDES+="config "
+                ;;
+            *)
+                echo "Error: unknown parseargs preset: ${preset}" >&2
+                return ${E_INVALID_ARGUMENT:-10}
+                ;;
+        esac
+    done
+}
+
+# @description Parse arguments, exiting on help or error. On success, exposes
+#   DO_SILENT and VERBOSE as globals and applies silent mode (via shell.sh's
+#   silence-output, restored on EXIT).
+# @usage parseargs-parse-or-exit "${@}"
+function parseargs-parse-or-exit() {
+    parseargs-parse "${@}"
+    local __rc=${?}
+
+    [[ ${__rc} -eq ${E_HELP_DISPLAYED:-3} ]] && exit 0
+    [[ ${__rc} -ne 0 ]] && exit ${__rc}
+
+    # Expose the standard option values as globals
+    declare -g DO_SILENT="${PARSEARGS_OPTS[DO_SILENT]:-false}"
+    declare -g VERBOSE="${PARSEARGS_OPTS[VERBOSE]:-0}"
+
+    if [[ "${DO_SILENT}" == "true" ]]; then
+        declare -F silence-output &>/dev/null || include-source 'shell.sh'
+        trap restore-output EXIT
+        silence-output
+    fi
+
+    return ${E_SUCCESS:-0}
+}
+
 # @description Parse command line arguments
 # @usage parseargs-parse <arg1> <arg2> ...
 function parseargs-parse() {
-    # Initialize the parser if not done already
-    if [[ ${#PARSEARGS_FLAGS[@]} -eq 0 && ${#PARSEARGS_PARAMETERS[@]} -eq 0 &&
-        ${#PARSEARGS_POSITIONALS[@]} -eq 0 && ${#PARSEARGS_SUBCOMMANDS[@]} -eq 0 ]]; then
+    # Initialize the parser if not done already. Only initialize when the
+    # parser state is genuinely unset: empty arrays are a legitimate state
+    # (e.g. only set-help/set-usage were called), and re-initializing would
+    # clobber those texts
+    if ! declare -p PARSEARGS_FLAGS &>/dev/null; then
         parseargs-init
     fi
 
@@ -958,14 +1146,43 @@ function parseargs-parse() {
     declare -gA PARSEARGS_OPTS=()
     declare -ga PARSEARGS_POSARGS=()
 
-    # Set default values for flags
+    # Materialize the built-in options (-s/--silent, -v/--verbose) unless the
+    # script claimed those names for itself
+    parseargs--register-builtins
+
+    # If the config preset is active, source the config file before applying
+    # defaults so its values participate in default resolution
+    local __use_env=false
+    if [[ "${PARSEARGS_INCLUDES}" == *"config "* ]]; then
+        __use_env=true
+        local __config_file="${HOME}/.${PARSEARGS_PROG_NAME}.conf"
+        local -a __argv=("${@}")
+        local __i
+        for ((__i = 0; __i < ${#__argv[@]}; __i++)); do
+            if [[ "${__argv[__i]}" == "--config-file" ]]; then
+                __config_file="${__argv[$((__i + 1))]}"
+            fi
+        done
+        [[ -f "${__config_file}" ]] && source "${__config_file}"
+        PARSEARGS_OPTS["CONFIG_FILE"]="${__config_file}"
+    fi
+
+    # Set default values for flags. With the config preset active, a variable
+    # set in the environment or config file (named by the option's store)
+    # beats the registered --default: CLI > config > env > default
     for key in $(printf "%s\n" "${!PARSEARGS_FLAGS[@]}" | grep ":store$"); do
         local base_key="${key%:store}"
         local store="${PARSEARGS_FLAGS["${key}"]}"
         local default="${PARSEARGS_FLAGS["${base_key}:default"]}"
 
-        # Only set if default is not empty
-        if [[ -n "${default}" ]]; then
+        # Count flags default to 0
+        if [[ "${PARSEARGS_FLAGS["${base_key}:count"]}" == "true" && -z "${default}" ]]; then
+            default=0
+        fi
+
+        if ${__use_env} && [[ -n "${!store+x}" ]]; then
+            PARSEARGS_OPTS["${store}"]="${!store}"
+        elif [[ -n "${default}" ]]; then
             PARSEARGS_OPTS["${store}"]="${default}"
         fi
     done
@@ -976,8 +1193,9 @@ function parseargs-parse() {
         local store="${PARSEARGS_PARAMETERS["${key}"]}"
         local default="${PARSEARGS_PARAMETERS["${base_key}:default"]}"
 
-        # Only set if default is not empty
-        if [[ -n "${default}" ]]; then
+        if ${__use_env} && [[ -n "${!store+x}" ]]; then
+            PARSEARGS_OPTS["${store}"]="${!store}"
+        elif [[ -n "${default}" ]]; then
             PARSEARGS_OPTS["${store}"]="${default}"
         fi
     done
@@ -1059,7 +1277,11 @@ function parseargs-parse() {
                 [[ -n "${subcommand}" && "${subcommand}" != "${PARSEARGS_ACTIVE_SUBCOMMAND}" ]] && continue
 
                 if [[ "${long}" == "--${flag_name}" ]]; then
-                    PARSEARGS_OPTS["${store}"]="false"
+                    if [[ "${PARSEARGS_FLAGS["${base_key}:count"]}" == "true" ]]; then
+                        PARSEARGS_OPTS["${store}"]=0
+                    else
+                        PARSEARGS_OPTS["${store}"]="false"
+                    fi
                     found=true
                     break
                 fi
@@ -1087,7 +1309,11 @@ function parseargs-parse() {
                 [[ -n "${subcommand}" && "${subcommand}" != "${PARSEARGS_ACTIVE_SUBCOMMAND}" ]] && continue
 
                 if [[ "${arg}" == "${long}" ]]; then
-                    PARSEARGS_OPTS["${store}"]="true"
+                    if [[ "${PARSEARGS_FLAGS["${base_key}:count"]}" == "true" ]]; then
+                        PARSEARGS_OPTS["${store}"]=$(( ${PARSEARGS_OPTS["${store}"]:-0} + 1 ))
+                    else
+                        PARSEARGS_OPTS["${store}"]="true"
+                    fi
                     found=true
                     break
                 fi
@@ -1161,7 +1387,11 @@ function parseargs-parse() {
                 [[ -n "${subcommand}" && "${subcommand}" != "${PARSEARGS_ACTIVE_SUBCOMMAND}" ]] && continue
 
                 if [[ "${arg}" == "${short}" ]]; then
-                    PARSEARGS_OPTS["${store}"]="true"
+                    if [[ "${PARSEARGS_FLAGS["${base_key}:count"]}" == "true" ]]; then
+                        PARSEARGS_OPTS["${store}"]=$(( ${PARSEARGS_OPTS["${store}"]:-0} + 1 ))
+                    else
+                        PARSEARGS_OPTS["${store}"]="true"
+                    fi
                     found=true
                     break
                 fi
@@ -1280,6 +1510,17 @@ function parseargs-parse() {
         fi
     done
 
+    # If the colors preset is active, resolve the color mode now, while the
+    # script's original fds are still in place (before any silence-output)
+    if [[ "${PARSEARGS_INCLUDES}" == *"colors "* ]]; then
+        case "${PARSEARGS_OPTS[COLOR]:-auto}" in
+            always) declare -g DO_COLOR=true ;;
+            never)  declare -g DO_COLOR=false ;;
+            *)      [[ -t 1 ]] && declare -g DO_COLOR=true || declare -g DO_COLOR=false ;;
+        esac
+        ${DO_COLOR} && setup-colors || unset-colors
+    fi
+
     return ${E_SUCCESS}
 }
 
@@ -1300,4 +1541,10 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f parseargs-validate-choices
     export -f parseargs-show-help
     export -f parseargs-parse
+    export -f parseargs-parse-or-exit
+    export -f parseargs-include
+    export -f parseargs--register-builtins
+    export -f parseargs--find-key-by-name
+    export -f parseargs--drop-option
+    export -f parseargs--guard-option-names
 fi
