@@ -485,7 +485,7 @@ function parseargs--drop-option() {
     local field
 
     if [[ "${type}" == "flag" ]]; then
-        for field in short long required default store help subcommand count; do
+        for field in short long required default store help subcommand count const; do
             unset "PARSEARGS_FLAGS[${key}:${field}]"
         done
     else
@@ -541,6 +541,7 @@ function parseargs-add-flag() {
     local help=""
     local subcommand=""
     local count=false
+    local const=""
     shift 1
 
     # Parse the flag specification
@@ -581,6 +582,10 @@ function parseargs-add-flag() {
                 count=true
                 shift 1
                 ;;
+            --const)
+                const="${2}"
+                shift 2
+                ;;
             -h | --help)
                 help="${2}"
                 shift 2
@@ -611,6 +616,7 @@ function parseargs-add-flag() {
     PARSEARGS_FLAGS["${key}:help"]="${help}"
     PARSEARGS_FLAGS["${key}:subcommand"]="${subcommand}"
     PARSEARGS_FLAGS["${key}:count"]="${count}"
+    PARSEARGS_FLAGS["${key}:const"]="${const}"
     PARSEARGS_OPTION_ORDER+=("flag:${key}")
 
     # Also store in the base key for direct access in tests
@@ -1323,6 +1329,8 @@ function parseargs-parse() {
                 if [[ "${arg}" == "${long}" ]]; then
                     if [[ "${PARSEARGS_FLAGS["${base_key}:count"]}" == "true" ]]; then
                         PARSEARGS_OPTS["${store}"]=$(( ${PARSEARGS_OPTS["${store}"]:-0} + 1 ))
+                    elif [[ -n "${PARSEARGS_FLAGS["${base_key}:const"]}" ]]; then
+                        PARSEARGS_OPTS["${store}"]="${PARSEARGS_FLAGS["${base_key}:const"]}"
                     else
                         PARSEARGS_OPTS["${store}"]="true"
                     fi
@@ -1401,6 +1409,8 @@ function parseargs-parse() {
                 if [[ "${arg}" == "${short}" ]]; then
                     if [[ "${PARSEARGS_FLAGS["${base_key}:count"]}" == "true" ]]; then
                         PARSEARGS_OPTS["${store}"]=$(( ${PARSEARGS_OPTS["${store}"]:-0} + 1 ))
+                    elif [[ -n "${PARSEARGS_FLAGS["${base_key}:const"]}" ]]; then
+                        PARSEARGS_OPTS["${store}"]="${PARSEARGS_FLAGS["${base_key}:const"]}"
                     else
                         PARSEARGS_OPTS["${store}"]="true"
                     fi

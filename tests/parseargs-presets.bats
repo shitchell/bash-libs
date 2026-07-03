@@ -253,6 +253,37 @@ assert_equal() {
 }
 
 
+## --const flags (argparse store_const) ########################################
+# Mode-selection flag groups (e.g. regescape's -E/-B/-P) share a store and
+# each set it to their own constant.
+
+@test "a --const flag sets its store to the constant, not 'true'" {
+  parseargs-add-flag "-E/--extended" --const extended --store REGEX_TYPE
+  parseargs-parse -E
+  assert_equal "extended" "${PARSEARGS_OPTS[REGEX_TYPE]}"
+}
+
+@test "the last --const flag of a shared store wins" {
+  parseargs-add-flag "-E/--extended" --const extended --store REGEX_TYPE
+  parseargs-add-flag "-P/--perl" --const perl --store REGEX_TYPE
+  parseargs-parse -E -P
+  assert_equal "perl" "${PARSEARGS_OPTS[REGEX_TYPE]}"
+}
+
+@test "a --const flag's --default applies when the flag is absent" {
+  parseargs-add-flag "-E/--extended" --const extended --store REGEX_TYPE --default extended
+  parseargs-add-flag "-P/--perl" --const perl --store REGEX_TYPE
+  parseargs-parse
+  assert_equal "extended" "${PARSEARGS_OPTS[REGEX_TYPE]}"
+}
+
+@test "long-form --const flags set the constant too" {
+  parseargs-add-flag "-E/--extended" --const extended --store REGEX_TYPE
+  parseargs-parse --extended
+  assert_equal "extended" "${PARSEARGS_OPTS[REGEX_TYPE]}"
+}
+
+
 ## real-debug integration ######################################################
 # The suite neutralizes debug() after sourcing, which masks a class of bug:
 # the real debug.sh debug() returns 1 when DEBUG is unset, so any lib
