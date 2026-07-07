@@ -2409,3 +2409,36 @@ function inthash() {
     # (( h < 0 )) && (( h = -h ))  # enforce nonnegative
     echo "${h}"
 }
+
+function silence-output() {
+    :  'Silence all output
+
+        Redirects stdout and stderr to /dev/null, saving the originals on
+        fds 3 and 4 so `restore-output` can bring them back.
+
+        @usage
+            silence-output
+    '
+    exec 3>&1 4>&2 1>/dev/null 2>&1
+    __OUTPUT_SILENCED=true
+}
+
+function restore-output() {
+    :  'Restore output after a call to `silence-output`
+
+        Restores stdout and stderr from the fds saved by `silence-output`.
+        Safe to call when output was never silenced, and works regardless
+        of whether the original fds were terminals (unlike the
+        `[[ -t 3 ]]`-guarded template version, which silently failed to
+        restore output redirected to files or pipes).
+
+        @usage
+            restore-output
+    '
+    # Only restore if we actually silenced: fds 3/4 being open proves
+    # nothing (bats, for one, holds fd3), and a failed redirection-only
+    # exec exits a non-interactive shell
+    [[ "${__OUTPUT_SILENCED:-false}" == "true" ]] || return 0
+    exec 1>&3 3>&- 2>&4 4>&-
+    __OUTPUT_SILENCED=false
+}

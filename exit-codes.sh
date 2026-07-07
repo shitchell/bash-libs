@@ -2,7 +2,16 @@
 : '
 A list of exit codes for use in shell scripts.
 
-Note when adding new exit codes: the possible range is 0-255.
+Exit codes are 8-bit: the possible range is 0-255, so codes are a shared,
+scarce resource. Reservation scheme:
+
+    0-99     standard lib codes (this file; grouped in ranges below)
+    100-125  reserved for script-specific codes -- define these in the
+             script itself, not here
+    126-165  OFF-LIMITS: shell-reserved (126 found-but-not-executable,
+             127 command-not-found, 128+N killed-by-signal-N)
+    166-254  unassigned; spillover for either side when a range fills up
+    255      OFF-LIMITS: out-of-range exit codes wrap to/through this
 '
 
 # General
