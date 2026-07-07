@@ -31,6 +31,24 @@ bright::dispatch() {
   local want="$op:$control" timeout_s="${BRIGHT_TIMEOUT:-5}"
   local p score caps line
 
+  # Fast path: reuse the last winning provider for this op/control, with a
+  # TTL (BRIGHT_CACHE_TTL, default 60s) and failure invalidation — see the
+  # twin comment in vol.sh for the full tradeoff discussion and file format.
+  local cache_file="${XDG_RUNTIME_DIR:-/tmp}/bright.provider.$want"
+  local cache_ttl="${BRIGHT_CACHE_TTL:-60}" cached cached_at now out_file
+  printf -v now '%(%s)T' -1 2>/dev/null || now=$(date +%s)
+  out_file="$(mktemp)"
+  if [[ -r "$cache_file" ]]; then
+    { IFS= read -r cached; IFS= read -r cached_at; } < "$cache_file"
+    [[ "$cached_at" =~ ^[0-9]+$ ]] || cached_at=0
+    if (( now - cached_at < cache_ttl )) && command -v "$cached" >/dev/null 2>&1; then
+      if timeout "$timeout_s" "$cached" "$op" "$control" "$@" </dev/null > "$out_file"; then
+        cat "$out_file"; rm -f "$out_file"; return 0
+      fi
+    fi
+    rm -f "$cache_file"
+  fi
+
   # Collect capable providers as "score<TAB>path", then order by score desc.
   local -a candidates=()
   while IFS= read -r p; do
@@ -48,18 +66,18 @@ bright::dispatch() {
   done < <(bright::_providers)
 
   if (( ${#candidates[@]} == 0 )); then
+    rm -f "$out_file"
     bright::_no_provider "$op" "$control"; return 3
   fi
 
-  local out_file rc=3 entry best
-  out_file="$(mktemp)"
+  local rc=3 entry best
 
-  # Try candidates highest-score first; first success wins.
+  # Try candidates highest-score first; first success wins and is cached.
   while IFS= read -r entry; do
     best="${entry#*$'\t'}"
     timeout "$timeout_s" "$best" "$op" "$control" "$@" </dev/null > "$out_file"
     rc=$?
-    (( rc == 0 )) && { cat "$out_file"; break; }
+    (( rc == 0 )) && { cat "$out_file"; printf '%s\n%s\n' "$best" "$now" > "$cache_file"; break; }
   done < <(printf '%s\n' "${candidates[@]}" | sort -t$'\t' -k1,1nr)
 
   rm -f "$out_file"
