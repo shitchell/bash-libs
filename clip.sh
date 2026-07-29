@@ -1,85 +1,68 @@
 # sh/lib/clip.sh
-: 'Unified clipboard dispatcher. Source-only.'
+: 'Unified clipboard dispatcher. Source-only.
 
-clip::_providers() { compgen -c 'clip.' 2>/dev/null | sort -u; }
+    The dispatch engine itself lives in provider.sh, shared with vol/bright/batt
+    (extracted 2026-07-29). clip keeps two family-specific traits, both passed
+    as flags:
+      --stdin    clipboard payloads travel on stdin and must survive NUL bytes
+                 and replay to a fallback provider.
+      --no-cache clip deliberately re-probes every dispatch. It is the family
+                 whose probe once froze micro for 100s, and staying uncached
+                 kept the extraction a behavior-preserving refactor that
+                 tests/clip/*.bats could gate.
+'
+
+source "$(dirname "${BASH_SOURCE[0]}")/provider.sh"
+
+clip::_providers() { provider::_providers clip; }
 
 clip::dispatch() {
   : 'Run the best capable provider for an op/type, with timeout + fallback.
 
-      Every backend here can occasionally stall, so each provider invocation is
-      wrapped in `timeout` (CLIP_TIMEOUT seconds, default 5). If the chosen
-      provider times out (exit 124) or exits non-zero, the dispatcher falls back
-      to the next-highest-scoring capable provider, until one succeeds or none
-      remain. If all fail, the friendly no-provider error is printed and 3 is
-      returned.
-
-      On `set`, stdin is consumed only once, so the payload is buffered up front
-      and replayed to every fallback attempt. On `get`, the provider stdout is
-      captured and emitted only if the provider succeeded, so a partial/failed
-      provider never leaks garbage before we fall back.
+      Thin wrapper over provider::dispatch — see that function for the probe,
+      scoring, fallback and binary-safety contract.
 
       @arg $1 op  (get|set)
       @arg $2 type (plain|rich|image)
       @env CLIP_TIMEOUT per-provider timeout in seconds (default 5)
+      @env CLIP_PROBE_TIMEOUT per-probe timeout in seconds (default 2)
       @stdin  content (for set)
       @stdout clipboard content (for get)
       @return 0 on success, 3 if no capable provider succeeds
   '
-  local op="$1" type="$2"; shift 2
-  local want="$op:$type" timeout_s="${CLIP_TIMEOUT:-5}"
-  local p score caps line
+  provider::dispatch --stdin --no-cache clip "$@"
+}
 
-  # Collect capable providers as "score<TAB>path", then order by score desc.
-  local -a candidates=()
-  while IFS= read -r p; do
-    score=0 caps=""
-    while IFS= read -r line; do
-      case "$line" in
-        score\ *) score="${line#score }" ;;
-        caps\ *)  caps=" ${line#caps } " ;;
-      esac
-    done < <("$p" probe </dev/null 2>/dev/null)
-    [[ "$score" =~ ^[0-9]+$ ]] || score=0
-    if (( score > 0 )) && [[ "$caps" == *" $want "* ]]; then
-      candidates+=("$(printf '%d\t%s' "$score" "$p")")
-    fi
-  done < <(clip::_providers)
+clip::dbus_has_owner() {
+  : 'True if NAME currently has an owner on the session bus.
 
-  if (( ${#candidates[@]} == 0 )); then
-    clip::_no_provider "$op" "$type"; return 3
+      The cheap liveness check providers should use instead of "run the client
+      and see if it works". Running the client asks D-Bus to ACTIVATE the
+      service, and activating one that cannot start (a daemon with no graphical
+      session to attach to) blocks for the full 25s bus timeout. NameHasOwner
+      only asks the bus what it already knows: ~20ms, never activates.
+
+      Prefer this over $DISPLAY/$WAYLAND_DISPLAY sniffing. Those are process
+      environment, and in a tmux session shared across a GUI and VTs they are
+      frozen at pane-creation time -- a pane opened in a VT keeps empty display
+      vars forever, even while a graphical session is up. Daemon liveness is a
+      live fact and stays correct across VT switches.
+
+      @arg $1 well-known bus name
+      @return 0 if the name is currently owned, 1 otherwise (including no bus
+              and no usable D-Bus CLI)
+  '
+  local name="$1"
+  [[ -n "$DBUS_SESSION_BUS_ADDRESS" || -S "${XDG_RUNTIME_DIR:-/run/user/$UID}/bus" ]] || return 1
+  if command -v busctl >/dev/null 2>&1; then
+    [[ "$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+            org.freedesktop.DBus NameHasOwner s "$name" 2>/dev/null)" == "b true" ]]
+  elif command -v gdbus >/dev/null 2>&1; then
+    [[ "$(gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus \
+            -m org.freedesktop.DBus.NameHasOwner "$name" 2>/dev/null)" == "(true,)" ]]
+  else
+    return 1
   fi
-
-  # Buffer stdin once for `set` so every fallback attempt gets the full payload.
-  # Use a temp FILE, not a shell variable: bash variables silently drop NUL
-  # bytes and trailing newlines, which corrupts binary payloads (e.g. a
-  # set:image PNG). A file preserves the bytes exactly. Same for capturing a
-  # get's stdout below.
-  local stdin_file="" out_file rc=3 entry best
-  if [[ "$op" == set ]]; then
-    stdin_file="$(mktemp)"; cat > "$stdin_file"
-  fi
-  out_file="$(mktemp)"
-
-  # Try candidates highest-score first; first success wins.
-  while IFS= read -r entry; do
-    best="${entry#*$'\t'}"
-    if [[ "$op" == set ]]; then
-      timeout "$timeout_s" "$best" "$op" "$type" "$@" < "$stdin_file"
-      rc=$?
-    else
-      # Capture stdout to a file (binary-safe); emit only on success so a failed
-      # provider can't leak a partial read before we fall back.
-      timeout "$timeout_s" "$best" "$op" "$type" "$@" </dev/null > "$out_file"
-      rc=$?
-      (( rc == 0 )) && cat "$out_file"
-    fi
-    (( rc == 0 )) && break
-  done < <(printf '%s\n' "${candidates[@]}" | sort -t$'\t' -k1,1nr)
-
-  [[ -n "$stdin_file" ]] && rm -f "$stdin_file"
-  rm -f "$out_file"
-  (( rc == 0 )) && return 0
-  clip::_no_provider "$op" "$type"; return 3
 }
 
 clip::_no_provider() {
